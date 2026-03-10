@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -29,6 +29,7 @@ CHudNumericDisplay::CHudNumericDisplay(vgui::Panel *parent, const char *name) : 
 
 	m_iValue = 0;
 	m_LabelText[0] = 0;
+	m_SecondaryLabelText[0] = 0;
 	m_iSecondaryValue = 0;
 	m_bDisplayValue = true;
 	m_bDisplaySecondaryValue = false;
@@ -88,6 +89,15 @@ void CHudNumericDisplay::SetLabelText(const wchar_t *text)
 //-----------------------------------------------------------------------------
 // Purpose: data accessor
 //-----------------------------------------------------------------------------
+void CHudNumericDisplay::SetSecondaryLabelText(const wchar_t *text)
+{
+	wcsncpy(m_SecondaryLabelText, text, sizeof(m_SecondaryLabelText) / sizeof(wchar_t));
+	m_SecondaryLabelText[(sizeof(m_SecondaryLabelText) / sizeof(wchar_t)) - 1] = 0;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: data accessor
+//-----------------------------------------------------------------------------
 void CHudNumericDisplay::SetIndent(bool state)
 {
 	m_bIndent = state;
@@ -110,24 +120,16 @@ void CHudNumericDisplay::PaintNumbers(HFont font, int xpos, int ypos, int value)
 	wchar_t unicode[6];
 	if ( !m_bIsTime )
 	{
-		V_snwprintf(unicode, ARRAYSIZE(unicode), L"%d", value);
+		swprintf(unicode, 7, L"%d", value);
 	}
 	else
 	{
 		int iMinutes = value / 60;
 		int iSeconds = value - iMinutes * 60;
-#ifdef PORTAL
-		// portal uses a normal font for numbers so we need the seperate to be a renderable ':' char
 		if ( iSeconds < 10 )
-			V_snwprintf( unicode, ARRAYSIZE(unicode), L"%d:0%d", iMinutes, iSeconds );
+			swprintf( unicode, 7, L"%d�0%d", iMinutes, iSeconds );
 		else
-			V_snwprintf( unicode, ARRAYSIZE(unicode), L"%d:%d", iMinutes, iSeconds );		
-#else
-		if ( iSeconds < 10 )
-			V_snwprintf( unicode, ARRAYSIZE(unicode), L"%d`0%d", iMinutes, iSeconds );
-		else
-			V_snwprintf( unicode, ARRAYSIZE(unicode), L"%d`%d", iMinutes, iSeconds );
-#endif
+			swprintf( unicode,7, L"%d�%d", iMinutes, iSeconds );
 	}
 
 	// adjust the position to take into account 3 characters
@@ -143,6 +145,7 @@ void CHudNumericDisplay::PaintNumbers(HFont font, int xpos, int ypos, int value)
 
 	surface()->DrawSetTextPos(xpos, ypos);
 	surface()->DrawUnicodeString( unicode );
+
 }
 
 //-----------------------------------------------------------------------------
@@ -154,6 +157,14 @@ void CHudNumericDisplay::PaintLabel( void )
 	surface()->DrawSetTextColor(GetFgColor());
 	surface()->DrawSetTextPos(text_xpos, text_ypos);
 	surface()->DrawUnicodeString( m_LabelText );
+
+	if (m_SecondaryLabelText[0] != 0)
+	{
+		surface()->DrawSetTextFont(m_hTextFont);
+		surface()->DrawSetTextColor(GetFgColor());
+		surface()->DrawSetTextPos(text2_xpos, text2_ypos);
+		surface()->DrawUnicodeString( m_SecondaryLabelText );
+	}
 }
 
 //-----------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: The various ammo types for HL2	
 //
@@ -15,7 +15,7 @@
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
-//---------------------------------------------------------
+//--------------------------------------------------------
 // Applies ammo quantity scale.
 //---------------------------------------------------------
 int ITEM_GiveAmmo( CBasePlayer *pPlayer, float flCount, const char *pszAmmoName, bool bSuppressSound = false )
@@ -30,10 +30,80 @@ int ITEM_GiveAmmo( CBasePlayer *pPlayer, float flCount, const char *pszAmmoName,
 	flCount *= g_pGameRules->GetAmmoQuantityScale(iAmmoType);
 
 	// Don't give out less than 1 of anything.
-	flCount = MAX( 1.0f, flCount );
+	flCount = max( 1.0f, flCount );
 
 	return pPlayer->GiveAmmo( flCount, iAmmoType, bSuppressSound );
 }
+
+// ========================================================================
+//	>> CItem_ManhackAmmo - Tero
+// ========================================================================
+class CItem_ManhackAmmo : public CItem
+{
+public:
+	DECLARE_CLASS( CItem_ManhackAmmo, CItem );
+
+	void Precache( void )
+	{
+		PrecacheModel ("models/manhack.mdl");
+	}
+
+	void Spawn( void )
+	{ 
+		Precache( );
+		SetModel( "models/manhack.mdl");
+		BaseClass::Spawn( );
+	}
+
+	bool MyTouch( CBasePlayer *pPlayer )
+	{
+		if (ITEM_GiveAmmo( pPlayer, 1, "Manhack" ) )
+		{
+			if ( g_pGameRules->ItemShouldRespawn( this ) == GR_ITEM_RESPAWN_NO )
+			{
+				UTIL_Remove(this);	
+			}
+			return true;
+		}
+		return false;
+	}
+};
+
+// ========================================================================
+//	>> CItem_ManhackAmmo - Tero
+// ========================================================================
+class CItem_AlyxGunAmmo : public CItem
+{
+public:
+	DECLARE_CLASS( CItem_AlyxGunAmmo, CItem );
+
+	void Precache( void )
+	{
+		PrecacheModel ("models/items/alyxgun_ammo.mdl");
+	}
+
+	void Spawn( void )
+	{ 
+		Precache( );
+		SetModel( "models/items/alyxgun_ammo.mdl" );
+		BaseClass::Spawn( );
+	}
+
+	bool MyTouch( CBasePlayer *pPlayer )
+	{
+		if (ITEM_GiveAmmo( pPlayer, 100, "AlyxGun" ) )
+		{
+			if ( g_pGameRules->ItemShouldRespawn( this ) == GR_ITEM_RESPAWN_NO )
+			{
+				UTIL_Remove(this);	
+			}
+			return true;
+		}
+		return false;
+	}
+};
+
+LINK_ENTITY_TO_CLASS( item_ammo_alyxgun, CItem_AlyxGunAmmo);
 
 // ========================================================================
 //	>> BoxSRounds
@@ -606,6 +676,8 @@ enum
 	AMMOCRATE_CROSSBOW,
 	AMMOCRATE_AR2_ALTFIRE,
 	AMMOCRATE_SMG_ALTFIRE,
+	AMMOCRATE_MANHACK,
+	AMMOCRATE_SMOKEGRENADE,
 	NUM_AMMO_CRATE_TYPES,
 };
 
@@ -691,8 +763,11 @@ const char *CItem_AmmoCrate::m_lpzModelNames[NUM_AMMO_CRATE_TYPES] =
 	"models/items/ammocrate_smg1.mdl",	// Crossbow
 	
 	//FIXME: This model is incorrect!
-	"models/items/ammocrate_ar2.mdl",		// Combine Ball 
+	"models/items/ammocrate_ar2altfire.mdl",		// Combine Ball 
 	"models/items/ammocrate_smg2.mdl",	    // smg grenade
+
+	"models/items/ammocrate_manhack.mdl",		// Controllalbe Manhacks -Tero
+	"models/items/ammocrate_grenade.mdl",		// Smoke Grenades
 };
 
 // Ammo type names
@@ -708,6 +783,8 @@ const char *CItem_AmmoCrate::m_lpzAmmoNames[NUM_AMMO_CRATE_TYPES] =
 	"XBowBolt",
 	"AR2AltFire",
 	"SMG1_Grenade",
+	"Manhack",
+	"SmokeGrenade"
 };
 
 // Ammo amount given per +use
@@ -716,13 +793,15 @@ int CItem_AmmoCrate::m_nAmmoAmounts[NUM_AMMO_CRATE_TYPES] =
 	300,	// Pistol
 	300,	// SMG1
 	300,	// AR2
-	3,		// RPG rounds
+	5,		// RPG rounds
 	120,	// Buckshot
 	5,		// Grenades
 	50,		// 357
 	50,		// Crossbow
 	3,		// AR2 alt-fire
 	5,
+	3,		// Manhack
+	3,		// Smoke Grenades
 };
 
 const char *CItem_AmmoCrate::m_pGiveWeapon[NUM_AMMO_CRATE_TYPES] =
@@ -737,6 +816,8 @@ const char *CItem_AmmoCrate::m_pGiveWeapon[NUM_AMMO_CRATE_TYPES] =
 	NULL,		// Crossbow
 	NULL,		// AR2 alt-fire
 	NULL,		// SMG alt-fire
+	"weapon_manhack",
+	"weapon_smokegrenade",
 };
 
 #define	AMMO_CRATE_CLOSE_DELAY	1.5f

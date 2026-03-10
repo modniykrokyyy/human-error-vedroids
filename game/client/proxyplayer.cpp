@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -54,7 +54,7 @@ void CPlayerProximityProxy::OnBind( void *pC_BaseEntity )
 		return;
 
 	Vector delta;
-	VectorSubtract( pEntity->WorldSpaceCenter(), pPlayer->WorldSpaceCenter(), delta );
+	VectorSubtract( pEntity->WorldSpaceCenter(), pPlayer->EyePosition(), delta ); 	//pPlayer->WorldSpaceCenter()
 
 	Assert( m_pResult );
 	SetFloatResult( delta.Length() * m_Factor );
@@ -358,9 +358,6 @@ public:
 
 	virtual IMaterial *GetMaterial();
 
-protected:
-	virtual void	OnLogoBindInternal( int playerindex );
-
 private:
 	IMaterialVar *m_pBaseTextureVar;
 
@@ -410,7 +407,7 @@ bool CPlayerLogoProxy::Init( IMaterial *pMaterial, KeyValues *pKeyValues )
 void CPlayerLogoProxy::OnBind( void *pC_BaseEntity )
 {
 	// Decal's are bound with the player index as the passed in paramter
-	int playerindex = (intp)pC_BaseEntity;
+	int playerindex = (int)(size_t)pC_BaseEntity;//int playerindex = (int)pC_BaseEntity;
 
 	if ( playerindex <= 0 )
 		return;
@@ -421,11 +418,6 @@ void CPlayerLogoProxy::OnBind( void *pC_BaseEntity )
 	if ( !m_pBaseTextureVar )
 		return;
 
-	OnLogoBindInternal( playerindex );
-}
-
-void CPlayerLogoProxy::OnLogoBindInternal( int playerindex )
-{
 	// Find player
 	player_info_t info;
 	engine->GetPlayerInfo( playerindex, &info );
@@ -486,39 +478,3 @@ IMaterial *CPlayerLogoProxy::GetMaterial()
 }
 
 EXPOSE_INTERFACE( CPlayerLogoProxy, IMaterialProxy, "PlayerLogo" IMATERIAL_PROXY_INTERFACE_VERSION );
-
-/* @note Tom Bui: This is here for reference, but we don't want people to use it!
-//-----------------------------------------------------------------------------
-// 
-//-----------------------------------------------------------------------------
-class CPlayerLogoOnModelProxy : public CPlayerLogoProxy
-{
-public:
-	virtual void OnBind( void *pC_BaseEntity );
-};
-
-void CPlayerLogoOnModelProxy::OnBind( void *pC_BaseEntity )
-{
-	if ( pC_BaseEntity )
-	{
-		IClientRenderable *pRend = (IClientRenderable *)pC_BaseEntity;
-		C_BaseEntity *pEntity = pRend->GetIClientUnknown()->GetBaseEntity();
-		if ( pEntity )
-		{
-			if ( !pEntity->IsPlayer() )
-			{
-				pEntity = pEntity->GetRootMoveParent();
-			}
-
-			if ( pEntity && pEntity->IsPlayer() )
-			{
-				int iPlayerIndex = pEntity->entindex();
-
-				OnLogoBindInternal( iPlayerIndex );
-			}
-		}
-	}
-}
-
-EXPOSE_INTERFACE( CPlayerLogoOnModelProxy, IMaterialProxy, "PlayerLogoOnModel" IMATERIAL_PROXY_INTERFACE_VERSION );
-*/

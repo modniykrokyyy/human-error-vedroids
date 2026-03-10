@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:
 //
@@ -492,8 +492,8 @@ bool CAI_Navigator::SetGoal( const AI_NavGoal_t &goal, unsigned flags )
 		DbgNavMsg(  GetOuter(), "Failed to pathfind to nav goal:\n" );
 		DbgNavMsg1( GetOuter(), "   Type:      %s\n", AIGetGoalTypeText( goal.type) );
 		DbgNavMsg1( GetOuter(), "   Dest:      %s\n", NavVecToString( goal.dest ) );
-		DbgNavMsg1( GetOuter(), "   Dest node: %p\n", goal.destNode );
-		DbgNavMsg1( GetOuter(), "   Target:    %p\n", goal.pTarget );
+		DbgNavMsg1( GetOuter(), "   Dest node: %d\n", goal.destNode );
+		DbgNavMsg1( GetOuter(), "   Target:    %#x\n", goal.pTarget );
 
 		if ( flags & AIN_DISCARD_IF_FAIL )
 			ClearPath();
@@ -503,8 +503,8 @@ bool CAI_Navigator::SetGoal( const AI_NavGoal_t &goal, unsigned flags )
 		DbgNavMsg(  GetOuter(), "New goal set:\n" );
 		DbgNavMsg1( GetOuter(), "   Type:         %s\n", AIGetGoalTypeText( goal.type) );
 		DbgNavMsg1( GetOuter(), "   Dest:         %s\n", NavVecToString( goal.dest ) );
-		DbgNavMsg1( GetOuter(), "   Dest node:    %p\n", goal.destNode );
-		DbgNavMsg1( GetOuter(), "   Target:       %p\n", goal.pTarget );
+		DbgNavMsg1( GetOuter(), "   Dest node:    %d\n", goal.destNode );
+		DbgNavMsg1( GetOuter(), "   Target:       %#x\n", goal.pTarget );
 		DbgNavMsg1( GetOuter(), "   Tolerance:    %.1f\n", GetPath()->GetGoalTolerance() );
 		DbgNavMsg1( GetOuter(), "   Waypoint tol: %.1f\n", GetPath()->GetWaypointTolerance() );
 		DbgNavMsg1( GetOuter(), "   Activity:     %s\n", GetOuter()->GetActivityName(GetPath()->GetMovementActivity()) );
@@ -1222,16 +1222,16 @@ float CAI_Navigator::GetPathTimeToGoal()
 AI_PathNode_t CAI_Navigator::GetNearestNode()
 {
 #ifdef WIN32
-	COMPILE_TIME_ASSERT( (intp)AIN_NO_NODE == NO_NODE );
+  COMPILE_TIME_ASSERT( (intp)AIN_NO_NODE == NO_NODE );
 #endif
-	return (AI_PathNode_t)(intp)( GetPathfinder()->NearestNodeToNPC() );
+  return (AI_PathNode_t)(intp)( GetPathfinder()->NearestNodeToNPC() );
 }
 
 //-----------------------------------------------------------------------------
 
 Vector CAI_Navigator::GetNodePos( AI_PathNode_t node )
 {
-	return GetNetwork()->GetNode((intp)node)->GetPosition(GetHullType());
+  return GetNetwork()->GetNode((intp)node)->GetPosition(GetHullType());
 }
 
 //-----------------------------------------------------------------------------
@@ -1467,7 +1467,7 @@ AIMoveResult_t CAI_Navigator::MoveClimb()
 	// Look for a block by another NPC, and attempt to recover
 	AIMoveTrace_t moveTrace;
 	if ( climbDist > 0.01 &&
-		 !GetMoveProbe()->MoveLimit( NAV_CLIMB, GetLocalOrigin(), GetLocalOrigin() + ( climbDir * MIN(0.1,climbDist - 0.005) ), MASK_NPCSOLID, GetNavTargetEntity(), &moveTrace ) )
+		 !GetMoveProbe()->MoveLimit( NAV_CLIMB, GetLocalOrigin(), GetLocalOrigin() + ( climbDir * min(0.1,climbDist - 0.005) ), MASK_NPCSOLID, GetNavTargetEntity(), &moveTrace ) )
 	{
 		CAI_BaseNPC *pOther = ( moveTrace.pObstruction ) ? moveTrace.pObstruction->MyNPCPointer() : NULL;
 		if ( pOther )
@@ -3116,7 +3116,7 @@ AI_NavPathProgress_t CAI_Navigator::ProgressFlyPath( const AI_ProgressFlyPathPar
 
 		if ( CurWaypointIsGoal() )
 		{
-			float tolerance = MAX( params.goalTolerance, GetPath()->GetGoalTolerance() );
+			float tolerance = max( params.goalTolerance, GetPath()->GetGoalTolerance() );
 			if ( waypointDist <= tolerance )
 				return AINPP_COMPLETE;
 		}
@@ -3160,7 +3160,7 @@ void CAI_Navigator::SimplifyFlyPath( unsigned collisionMask, const CBaseEntity *
 #define FLY_ROUTE_SIMPLIFY_TIME_DELAY 0.3
 #define FLY_ROUTE_SIMPLIFY_LOOK_DIST (12.0*12.0)
 
-bool CAI_Navigator::SimplifyFlyPath(  const AI_ProgressFlyPathParams_t &params )
+bool CAI_Navigator::SimplifyFlyPath(  const AI_ProgressFlyPathParams_t &params, float flOffset )
 {
 	if ( !GetPath()->GetCurWaypoint() )
 		return false;
@@ -3173,10 +3173,13 @@ bool CAI_Navigator::SimplifyFlyPath(  const AI_ProgressFlyPathParams_t &params )
 	if ( params.bTrySimplify && SimplifyPathForward( FLY_ROUTE_SIMPLIFY_LOOK_DIST ) )
 		return true;
 
+	//TERO: added
+	Vector vecOrigin = GetLocalOrigin() + Vector(0, 0, params.vertOffset);
+
 	// don't shorten path_corners
 	bool bIsStrictWaypoint = ( !params.bTrySimplify || ( (GetPath()->CurWaypointFlags() & (bits_WP_TO_PATHCORNER|bits_WP_DONT_SIMPLIFY) ) != 0 ) );
 
-	Vector dir = GetCurWaypointPos() - GetLocalOrigin();
+	Vector dir = GetCurWaypointPos() - vecOrigin; //GetLocalOrigin();
 	float length = VectorNormalize( dir );
 	
 	if ( !bIsStrictWaypoint || length < params.strictPointTolerance )
@@ -3187,7 +3190,7 @@ bool CAI_Navigator::SimplifyFlyPath(  const AI_ProgressFlyPathParams_t &params )
 			return false;
 
 		AIMoveTrace_t moveTrace;
-		GetMoveProbe()->MoveLimit( NAV_FLY, GetLocalOrigin(), GetPath()->NextWaypointPos(),
+		GetMoveProbe()->MoveLimit( NAV_FLY, vecOrigin, GetPath()->NextWaypointPos(),
 			params.collisionMask, params.pTarget, &moveTrace);
 		
 		if ( moveTrace.flDistObstructed - params.blockTolerance < 0.01 || 

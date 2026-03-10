@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//====== Copyright � 1996-2005, Valve Corporation, All rights reserved. =======
 //
 // Purpose: 
 //
@@ -31,8 +31,9 @@ struct JeepWaterData_t
 //-----------------------------------------------------------------------------
 class CPropJeep : public CPropVehicleDriveable
 {
-public:
 	DECLARE_CLASS( CPropJeep, CPropVehicleDriveable );
+
+public:
 
 	DECLARE_SERVERCLASS();
 	DECLARE_DATADESC();
@@ -118,6 +119,10 @@ private:
 	void		InputShowHudHint( inputdata_t &inputdata );
 	void		InputStartRemoveTauCannon( inputdata_t &inputdata );
 	void		InputFinishRemoveTauCannon( inputdata_t &inputdata );
+	
+	//TERO: HLSS
+	void		InputForcePlayerIn( inputdata_t &inputdata );
+	void		InputForcePlayerOut( inputdata_t &inputdata );
 
 protected:
 

@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: Combine gun turret that emerges from a trapdoor in the ground.
 //
@@ -22,7 +22,10 @@
 #include "explode.h"
 #include "te_effect_dispatch.h"
 
+#include "globalstate.h"
+
 #define GROUNDTURRET_BEAM_SPRITE "materials/effects/bluelaser2.vmt"
+#define GROUNDTURRET_BEAM_SPRITE_RED "materials/effects/redlaser2.vmt"
 
 #define GROUNDTURRET_VIEWCONE		60.0f // (degrees)
 #define GROUNDTURRET_RETIRE_TIME	7.0f
@@ -69,6 +72,7 @@ END_DATADESC()
 void CNPC_GroundTurret::Precache( void )
 {
 	PrecacheModel( GROUNDTURRET_BEAM_SPRITE );
+	PrecacheModel( GROUNDTURRET_BEAM_SPRITE_RED );
 	PrecacheModel( "models/combine_turrets/ground_turret.mdl" );
 
 	PrecacheScriptSound( "NPC_CeilingTurret.Deploy" );
@@ -148,6 +152,7 @@ void CNPC_GroundTurret::Spawn( void )
 
 	GetAttachment( "light", vecPos );
 	m_vecLightOffset = vecPos - GetAbsOrigin();
+
 }
 
 //-----------------------------------------------------------------------------
@@ -190,7 +195,10 @@ Class_T	CNPC_GroundTurret::Classify( void )
 	}
 	else
 	{
-		return CLASS_COMBINE;
+		if (GlobalEntity_GetState("combine_base_hacked") == GLOBAL_ON)
+			return CLASS_COMBINE_HACKED;
+		else
+			return CLASS_COMBINE;
 	}
 }
 
@@ -308,7 +316,11 @@ void CNPC_GroundTurret::MakeTracer( const Vector &vecTracerSrc, const trace_t &t
 	CBeam *pBeam;
 	int	width = 2;
 
-	pBeam = CBeam::BeamCreate( GROUNDTURRET_BEAM_SPRITE, width );
+	if (GlobalEntity_GetState("combine_base_hacked") == GLOBAL_ON)
+		pBeam = CBeam::BeamCreate( GROUNDTURRET_BEAM_SPRITE_RED, width );
+	else
+		pBeam = CBeam::BeamCreate( GROUNDTURRET_BEAM_SPRITE, width );
+
 	if ( !pBeam )
 		return;
 	
@@ -555,14 +567,7 @@ void CNPC_GroundTurret::Shoot()
 
 	EmitSound( "NPC_FloorTurret.ShotSounds", m_ShotSounds );
 
-	if( IsX360() )
-	{
-		m_flTimeNextShoot = gpGlobals->curtime + 0.2;
-	}
-	else
-	{
-		m_flTimeNextShoot = gpGlobals->curtime + 0.09;
-	}
+	m_flTimeNextShoot = gpGlobals->curtime + 0.09;
 }
 
 //-----------------------------------------------------------------------------
@@ -570,7 +575,12 @@ void CNPC_GroundTurret::Shoot()
 void CNPC_GroundTurret::ProjectBeam( const Vector &vecStart, const Vector &vecDir, int width, int brightness, float duration )
 {
 	CBeam *pBeam;
-	pBeam = CBeam::BeamCreate( GROUNDTURRET_BEAM_SPRITE, width );
+
+	if (GlobalEntity_GetState("combine_base_hacked") == GLOBAL_ON)
+		pBeam = CBeam::BeamCreate( GROUNDTURRET_BEAM_SPRITE_RED, width );
+	else
+		pBeam = CBeam::BeamCreate( GROUNDTURRET_BEAM_SPRITE, width );
+
 	if ( !pBeam )
 		return;
 

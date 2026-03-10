@@ -15,6 +15,8 @@
 #include "ispatialpartition.h"
 #include "utlpriorityqueue.h"
 
+#include "ai_navtype.h"
+
 // ------------------------------------
 
 class CAI_Node;
@@ -175,6 +177,13 @@ private:
 	ISpatialPartition * m_pNodeTree;
 	CUtlVector<int>		m_GatheredNodes;
 #endif
+
+    //HLSS DNS:
+public:
+	int	NodeInsideBrush( CAI_BaseNPC* pNPC, CBaseEntity *pBrush, INearestNodeFilter *pFilter, int maxListCount = -1 );
+	int GetNodeCountInBrush( CBaseEntity *pBrush, int iNavType = NAV_NONE );
+private:
+	int ListNodesInBrush( CNodeList &list, int maxListCount, CBaseEntity *pBrush, INodeListFilter *pFilter );
 };
 
 //-----------------------------------------------------------------------------

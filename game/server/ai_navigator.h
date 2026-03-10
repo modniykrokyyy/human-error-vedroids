@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:
 //
@@ -225,16 +225,16 @@ struct AI_NavGoal_t
 
 struct AI_ProgressFlyPathParams_t
 {
-	AI_ProgressFlyPathParams_t( unsigned _collisionMask, 
-							   	float _strictPointTolerance = 32.0, float _blockTolerance = 0.0,
-							   	float _waypointTolerance = 100, float _goalTolerance = 12,
-							   	AI_NpcBlockHandling_t _blockHandling = AISF_BLOCK )
-	 :	collisionMask( _collisionMask ),
-		strictPointTolerance( _strictPointTolerance ),
-		blockTolerance( _blockTolerance ),
-		waypointTolerance( _waypointTolerance ),
-		goalTolerance( _goalTolerance ),
-		blockHandling( _blockHandling ),
+	AI_ProgressFlyPathParams_t( unsigned collisionMask, 
+							   	float strictPointTolerance = 32.0, float blockTolerance = 0.0,
+							   	float waypointTolerance = 100, float goalTolerance = 12,
+							   	AI_NpcBlockHandling_t blockHandling = AISF_BLOCK )
+	 :	collisionMask( collisionMask ),
+		strictPointTolerance( strictPointTolerance ),
+		blockTolerance( blockTolerance ),
+		waypointTolerance( waypointTolerance ),
+		goalTolerance( goalTolerance ),
+		blockHandling( blockHandling ),
 		pTarget( NULL ),
 		bTrySimplify( true )
 	{
@@ -258,6 +258,8 @@ struct AI_ProgressFlyPathParams_t
 													// and more than likely should be excised
 	AI_NpcBlockHandling_t 	blockHandling;			// @TODO (toml 07-03-02): rename "blockHandling". This is specifically the "simplify" block handling. See SimplifyFlyPath()
 
+	float					vertOffset;
+	
 	// Fields that tend to change
 	const CBaseEntity *		pTarget;
 	bool 					bTrySimplify;
@@ -418,7 +420,7 @@ public:
 	void				SimplifyFlyPath( unsigned collisionMask, const CBaseEntity *pTarget, 
 										 float strictPointTolerance = 32.0, float blockTolerance = 0.0,
 										 AI_NpcBlockHandling_t blockHandling = AISF_BLOCK);
-	bool				SimplifyFlyPath(  const AI_ProgressFlyPathParams_t &params );
+	bool				SimplifyFlyPath(  const AI_ProgressFlyPathParams_t &params, float flOffset = 0.0f );
 	
 	bool				CanFitAtNode(int nodeNum, unsigned int collisionMask = MASK_NPCSOLID_BRUSHONLY); 
 	float				MovementCost( int moveType, Vector &vecStart, Vector &vecEnd );

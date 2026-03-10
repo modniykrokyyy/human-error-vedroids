@@ -308,14 +308,16 @@ void C_PropVehicleDriveable::DrawHudElements( )
 				iIconX = 385;
 				if ( !m_bScannerWepIcon )
 				{
-					pIcon->DrawSelf( XRES(iIconX), YRES(iIconY), Color( 0, 0, 255, 255 ) );
+					Color clr(255, 255, 255, 255);
+					pIcon->DrawSelf( XRES(iIconX), YRES(iIconY), clr );
 					m_bScannerWepIcon = true;
 					m_iScannerWepFlashTimer = 0;
 					m_bScannerWepDim = true;
 				}
 				else
 				{
-					pIcon->DrawSelf( XRES(iIconX), YRES(iIconY), Color( 0, 0, GetFlashColorIntensity(55, 255, m_bScannerWepDim, 10, m_iScannerWepFlashTimer), 255 ) );
+					Color clr2(	0, 0, GetFlashColorIntensity(55, 255, m_bScannerWepDim, 10, m_iScannerWepFlashTimer), 255 );
+					pIcon->DrawSelf( XRES(iIconX), YRES(iIconY), clr2 );
 					m_iScannerWepFlashTimer++;
 					m_iScannerWepFlashTimer %= 20;
 					if(!m_iScannerWepFlashTimer)
@@ -335,14 +337,16 @@ void C_PropVehicleDriveable::DrawHudElements( )
 			iIconX = 410;
 			if ( !m_bScannerVehicleIcon )
 			{
-				pIcon->DrawSelf( XRES(iIconX), YRES(iIconY), Color( 0, 0, 255, 255 ) );
+				Color clr3(255, 255, 255, 255);
+				pIcon->DrawSelf( XRES(iIconX), YRES(iIconY), clr3 );
 				m_bScannerVehicleIcon = true;
 				m_iScannerVehicleFlashTimer = 0;
 				m_bScannerVehicleDim = true;
 			}
 			else
 			{
-				pIcon->DrawSelf( XRES(iIconX), YRES(iIconY), Color( 0, 0, GetFlashColorIntensity(55, 255, m_bScannerVehicleDim, 10, m_iScannerVehicleFlashTimer), 255 ) );
+				Color clr4( 0, 0, GetFlashColorIntensity(55, 255, m_bScannerVehicleDim, 10, m_iScannerVehicleFlashTimer), 255 );
+				pIcon->DrawSelf( XRES(iIconX), YRES(iIconY), clr4 );
 				m_iScannerVehicleFlashTimer++;
 				m_iScannerVehicleFlashTimer %= 20;
 				if(!m_iScannerVehicleFlashTimer)

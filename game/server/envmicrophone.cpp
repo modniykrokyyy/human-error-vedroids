@@ -19,6 +19,7 @@
 #include "soundflags.h"
 #include "engine/IEngineSound.h"
 #include "filters.h"
+#include "Human_Error/hlss_metrocopradio.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -497,6 +498,30 @@ MicrophoneResult_t CEnvMicrophone::SoundPlayed( int entindex, const char *soundn
 
 	m_bAvoidFeedback = false;
 
+	//TERO:
+	if ( m_spawnflags & SF_MICROPHONE_METROCOP_RADIO )
+	{
+		/*CHLSS_MetrocopRadio *pMetrocopRadio = CHLSS_MetrocopRadio::GetMetrocopRadio();
+
+		if (pMetrocopRadio)
+		{
+			float flDuration = gpGlobals->curtime + enginesound->GetSoundDuration( soundname ); //GetSoundDuration( (char *)STRING( m_iszSound ), (char *)STRING(pPlayer->GetModelName()) ) + gpGlobals->curtime;
+		
+			pMetrocopRadio->FakeRadio(flDuration);
+		}*/
+
+		CBasePlayer *pPlayer  = UTIL_GetLocalPlayer();
+		if (pPlayer)
+		{
+			float flDuration = gpGlobals->curtime + enginesound->GetSoundDuration( soundname ); //GetSoundDuration( (char *)STRING( m_iszSound ), (char *)STRING(pPlayer->GetModelName()) ) + gpGlobals->curtime;
+		
+			CSingleUserRecipientFilter filter(pPlayer);
+			UserMessageBegin(filter, "UpdateRadioDuration");
+				WRITE_FLOAT(flDuration);
+			MessageEnd();
+		}
+	}
+	
 	// Copy emitted origin to soundorigins array
 	for ( int i = 0; i < ep.m_UtlVecSoundOrigin.Count(); ++i )
 	{

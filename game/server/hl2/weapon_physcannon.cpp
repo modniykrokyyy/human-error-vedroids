@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: Physics cannon
 //
@@ -40,8 +40,6 @@
 #include "ai_interactions.h"
 #include "rumble_shared.h"
 #include "gamestats.h"
-// NVNT haptic utils
-#include "haptics/haptic_utils.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -433,16 +431,6 @@ static void ComputePlayerMatrix( CBasePlayer *pPlayer, matrix3x4_t &out )
 	AngleMatrix( angles, origin, out );
 }
 
-
-//-----------------------------------------------------------------------------
-// Purpose: 
-//-----------------------------------------------------------------------------
-// derive from this so we can add save/load data to it
-struct game_shadowcontrol_params_t : public hlshadowcontrol_params_t
-{
-	DECLARE_SIMPLE_DATADESC();
-};
-
 BEGIN_SIMPLE_DATADESC( game_shadowcontrol_params_t )
 	
 	DEFINE_FIELD( targetPosition,		FIELD_POSITION_VECTOR ),
@@ -456,69 +444,7 @@ BEGIN_SIMPLE_DATADESC( game_shadowcontrol_params_t )
 
 END_DATADESC()
 
-//-----------------------------------------------------------------------------
-class CGrabController : public IMotionEvent
-{
-	DECLARE_SIMPLE_DATADESC();
 
-public:
-
-	CGrabController( void );
-	~CGrabController( void );
-	void AttachEntity( CBasePlayer *pPlayer, CBaseEntity *pEntity, IPhysicsObject *pPhys, bool bIsMegaPhysCannon, const Vector &vGrabPosition, bool bUseGrabPosition );
-	void DetachEntity( bool bClearVelocity );
-	void OnRestore();
-
-	bool UpdateObject( CBasePlayer *pPlayer, float flError );
-
-	void SetTargetPosition( const Vector &target, const QAngle &targetOrientation );
-	float ComputeError();
-	float GetLoadWeight( void ) const { return m_flLoadWeight; }
-	void SetAngleAlignment( float alignAngleCosine ) { m_angleAlignment = alignAngleCosine; }
-	void SetIgnorePitch( bool bIgnore ) { m_bIgnoreRelativePitch = bIgnore; }
-	QAngle TransformAnglesToPlayerSpace( const QAngle &anglesIn, CBasePlayer *pPlayer );
-	QAngle TransformAnglesFromPlayerSpace( const QAngle &anglesIn, CBasePlayer *pPlayer );
-
-	CBaseEntity *GetAttached() { return (CBaseEntity *)m_attachedEntity; }
-
-	IMotionEvent::simresult_e Simulate( IPhysicsMotionController *pController, IPhysicsObject *pObject, float deltaTime, Vector &linear, AngularImpulse &angular );
-	float GetSavedMass( IPhysicsObject *pObject );
-
-	bool IsObjectAllowedOverhead( CBaseEntity *pEntity );
-
-private:
-	// Compute the max speed for an attached object
-	void ComputeMaxSpeed( CBaseEntity *pEntity, IPhysicsObject *pPhysics );
-
-	game_shadowcontrol_params_t	m_shadow;
-	float			m_timeToArrive;
-	float			m_errorTime;
-	float			m_error;
-	float			m_contactAmount;
-	float			m_angleAlignment;
-	bool			m_bCarriedEntityBlocksLOS;
-	bool			m_bIgnoreRelativePitch;
-
-	float			m_flLoadWeight;
-	float			m_savedRotDamping[VPHYSICS_MAX_OBJECT_LIST_COUNT];
-	float			m_savedMass[VPHYSICS_MAX_OBJECT_LIST_COUNT];
-	EHANDLE			m_attachedEntity;
-	QAngle			m_vecPreferredCarryAngles;
-	bool			m_bHasPreferredCarryAngles;
-	float			m_flDistanceOffset;
-
-	QAngle			m_attachedAnglesPlayerSpace;
-	Vector			m_attachedPositionObjectSpace;
-
-	IPhysicsMotionController *m_controller;
-
-	bool			m_bAllowObjectOverhead; // Can the player hold this object directly overhead? (Default is NO)
-
-	// NVNT player controlling this grab controller
-	CBasePlayer*	m_pControllingPlayer;
-
-	friend class CWeaponPhysCannon;
-};
 
 BEGIN_SIMPLE_DATADESC( CGrabController )
 
@@ -565,8 +491,6 @@ CGrabController::CGrabController( void )
 	m_vecPreferredCarryAngles = vec3_angle;
 	m_bHasPreferredCarryAngles = false;
 	m_flDistanceOffset = 0;
-	// NVNT constructing m_pControllingPlayer to NULL
-	m_pControllingPlayer = NULL;
 }
 
 CGrabController::~CGrabController( void )
@@ -776,9 +700,6 @@ void CGrabController::AttachEntity( CBasePlayer *pPlayer, CBaseEntity *pEntity, 
 		pList[i]->SetMass( REDUCED_CARRY_MASS / flFactor );
 		pList[i]->SetDamping( NULL, &damping );
 	}
-
-	// NVNT setting m_pControllingPlayer to the player attached
-	m_pControllingPlayer = pPlayer;
 	
 	// Give extra mass to the phys object we're actually picking up
 	pPhys->SetMass( REDUCED_CARRY_MASS );
@@ -964,32 +885,6 @@ bool CGrabController::IsObjectAllowedOverhead( CBaseEntity *pEntity )
 	return false;
 }
 
-//-----------------------------------------------------------------------------
-// Player pickup controller
-//-----------------------------------------------------------------------------
-class CPlayerPickupController : public CBaseEntity
-{
-	DECLARE_DATADESC();
-	DECLARE_CLASS( CPlayerPickupController, CBaseEntity );
-public:
-	void Init( CBasePlayer *pPlayer, CBaseEntity *pObject );
-	void Shutdown( bool bThrown = false );
-	bool OnControls( CBaseEntity *pControls ) { return true; }
-	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
-	void OnRestore()
-	{
-		m_grabController.OnRestore();
-	}
-	void VPhysicsUpdate( IPhysicsObject *pPhysics ){}
-	void VPhysicsShadowUpdate( IPhysicsObject *pPhysics ) {}
-
-	bool IsHoldingEntity( CBaseEntity *pEnt );
-	CGrabController &GetGrabController() { return m_grabController; }
-
-private:
-	CGrabController		m_grabController;
-	CBasePlayer			*m_pPlayer;
-};
 
 LINK_ENTITY_TO_CLASS( player_pickup, CPlayerPickupController );
 
@@ -1047,10 +942,6 @@ void CPlayerPickupController::Init( CBasePlayer *pPlayer, CBaseEntity *pObject )
 	Pickup_OnPhysGunPickup( pObject, m_pPlayer, PICKED_UP_BY_PLAYER );
 	
 	m_grabController.AttachEntity( pPlayer, pObject, pPhysics, false, vec3_origin, false );
-	// NVNT apply a downward force to simulate the mass of the held object.
-#if defined( WIN32 ) && !defined( _X360 )
-	HapticSetConstantForce(m_pPlayer,clamp(m_grabController.GetLoadWeight()*0.1,1,6)*Vector(0,-1,0));
-#endif
 	
 	m_pPlayer->m_Local.m_iHideHUD |= HIDEHUD_WEAPONSELECTION;
 	m_pPlayer->SetUseEntity( this );
@@ -1072,11 +963,7 @@ void CPlayerPickupController::Shutdown( bool bThrown )
 	}
 
 	m_grabController.DetachEntity( bClearVelocity );
-	// NVNT if we have a player, issue a zero constant force message
-#if defined( WIN32 ) && !defined( _X360 )
-	if(m_pPlayer)
-		HapticSetConstantForce(m_pPlayer,Vector(0,0,0));
-#endif
+
 	if ( pObject != NULL )
 	{
 		Pickup_OnPhysGunDrop( pObject, m_pPlayer, bThrown ? THROWN_BY_PLAYER : DROPPED_BY_PLAYER );
@@ -2421,10 +2308,6 @@ bool CWeaponPhysCannon::AttachObject( CBaseEntity *pObject, const Vector &vPosit
 
 	if( pOwner )
 	{
-#if defined( WIN32 ) && !defined( _X360 )
-		// NVNT set the players constant force to simulate holding mass
-		HapticSetConstantForce(pOwner,clamp(m_grabController.GetLoadWeight()*0.05,1,5)*Vector(0,-1,0));
-#endif
 		pOwner->EnableSprint( false );
 
 		float	loadWeight = ( 1.0f - GetLoadPercentage() );
@@ -2881,10 +2764,6 @@ void CWeaponPhysCannon::DetachObject( bool playSound, bool wasLaunched )
 		{
 			pOwner->RumbleEffect( RUMBLE_357, 0, RUMBLE_FLAG_RESTART );
 		}
-#if defined( WIN32 ) && !defined( _X360 )
-		// NVNT clear constant force
-		HapticSetConstantForce(pOwner,Vector(0,0,0));
-#endif
 	}
 
 	CBaseEntity *pObject = m_grabController.GetAttached();

@@ -1,4 +1,3 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
 #ifndef NPC_TURRET_FLOOR_H
 #define NPC_TURRET_FLOOR_H
 #ifdef _WIN32
@@ -43,6 +42,9 @@ enum eyeState_t
 #define SF_FLOOR_TURRET_FASTRETIRE			0x00000080
 #define SF_FLOOR_TURRET_OUT_OF_AMMO			0x00000100
 #define SF_FLOOR_TURRET_CITIZEN				0x00000200	// Citizen modified turret
+#define SF_FLOOR_TURRET_BREAKABLE			0x00002000
+#define SF_FLOOR_TURRET_CAN_BE_CARRIED		0x00004000
+
 
 class CTurretTipController;
 class CBeam;
@@ -58,6 +60,8 @@ public:
 
 	CNPC_FloorTurret( void );
 
+	static int		GetBreakableTurretHealth( void );
+
 	virtual void	Precache( void );
 	virtual void	Spawn( void );
 	virtual void	Activate( void );
@@ -67,6 +71,7 @@ public:
 	virtual void	PlayerPenetratingVPhysics( void );
 	virtual int		VPhysicsTakeDamage( const CTakeDamageInfo &info );
 	virtual bool	CanBecomeServerRagdoll( void ) { return false; }
+	//virtual void	Event_Killed( const CTakeDamageInfo &info );
 
 #ifdef HL2_EPISODIC
 	// We don't want to be NPCSOLID because we'll collide with NPC clips
@@ -115,11 +120,29 @@ public:
 		return BaseClass::ObjectCaps() | FCAP_IMPULSE_USE;
 	}
 
+	//TERO:
+	bool CarryTurret(CBasePlayer *pPlayer);
+
+	bool CanBeCarried();
+
+	void CheckUseHold();
+
 	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
 	{
 		CBasePlayer *pPlayer = ToBasePlayer( pActivator );
 		if ( pPlayer )
 		{
+			/*if (!CarryTurret(pPlayer))
+			{
+				pPlayer->PickupObject( this, false );
+			}*/
+			if (CanBeCarried())
+			{
+				m_flCarryClickTime = gpGlobals->curtime + 0.5f;
+
+				UTIL_HudHintText( pPlayer, "#HLSS_TurretClick" );
+			}
+
 			pPlayer->PickupObject( this, false );
 		}
 	}
@@ -131,6 +154,9 @@ public:
 	void	InputDepleteAmmo( inputdata_t &inputdata );
 	void	InputRestoreAmmo( inputdata_t &inputdata );
 	void	InputSelfDestruct( inputdata_t &inputdata );
+	void	InputMakeBreakable( inputdata_t &inputdata );
+	
+	void	SelfDestruct();
 
 	virtual bool	IsValidEnemy( CBaseEntity *pEnemy );
 	bool			CanBeAnEnemyOf( CBaseEntity *pEnemy );
@@ -141,6 +167,7 @@ public:
 	float	MaxYawSpeed( void );
 
 	virtual Class_T	Classify( void );
+	virtual Disposition_t IRelationType( CBaseEntity *pTarget );
 
 	Vector EyePosition( void )
 	{
@@ -251,6 +278,9 @@ protected:
 
 	bool	m_bHackedByAlyx;
 	HSOUNDSCRIPTHANDLE			m_ShotSounds;
+
+	//TERO: 
+	float	m_flCarryClickTime;
 
 	DECLARE_DATADESC();
 	DEFINE_CUSTOM_AI;

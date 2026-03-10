@@ -38,7 +38,6 @@
 
 #ifdef TF_DLL
 #include "tf_player.h"
-#include "tf_gamerules.h"
 #endif
 
 #ifdef HL2_DLL
@@ -288,14 +287,14 @@ void Host_Say( edict_t *pEdict, const CCommand &args, bool teamonly )
 	else
 		UTIL_LogPrintf( "\"%s<%i><%s><%s>\" say \"%s\"\n", playerName, userid, networkID, playerTeam, p );
 
-	IGameEvent * event = gameeventmanager->CreateEvent( "player_say", true );
+	IGameEvent * event = gameeventmanager->CreateEvent( "player_say" );
 
-	if ( event )
+	if ( event )	// will be null if there are no listeners!
 	{
 		event->SetInt("userid", userid );
 		event->SetString("text", p );
 		event->SetInt("priority", 1 );	// HLTV event priority, not transmitted
-		gameeventmanager->FireEvent( event, true );
+		gameeventmanager->FireEvent( event );
 	}
 }
 
@@ -311,9 +310,7 @@ void ClientPrecache( void )
 	CBaseEntity::PrecacheModel( "sprites/purpleglow1.vmt" );	
 	CBaseEntity::PrecacheModel( "sprites/purplelaser1.vmt" );	
 	
-#ifndef HL2MP
 	CBaseEntity::PrecacheScriptSound( "Hud.Hint" );
-#endif // HL2MP
 	CBaseEntity::PrecacheScriptSound( "Player.FallDamage" );
 	CBaseEntity::PrecacheScriptSound( "Player.Swim" );
 
@@ -353,7 +350,7 @@ CON_COMMAND_F( cast_ray, "Tests collision detection", FCVAR_CHEAT )
 		DevMsg(1, "Hit %s\nposition %.2f, %.2f, %.2f\nangles %.2f, %.2f, %.2f\n", tr.m_pEnt->GetClassname(),
 			tr.m_pEnt->GetAbsOrigin().x, tr.m_pEnt->GetAbsOrigin().y, tr.m_pEnt->GetAbsOrigin().z,
 			tr.m_pEnt->GetAbsAngles().x, tr.m_pEnt->GetAbsAngles().y, tr.m_pEnt->GetAbsAngles().z );
-		DevMsg(1, "Hit: hitbox %d, hitgroup %d, physics bone %d, solid %d, surface %s, surfaceprop %s, contents %08x\n", tr.hitbox, tr.hitgroup, tr.physicsbone, tr.m_pEnt->GetSolid(), tr.surface.name, physprops->GetPropName( tr.surface.surfaceProps ), tr.contents );
+		DevMsg(1, "Hit: hitbox %d, hitgroup %d, physics bone %d, solid %d, surface %s, surfaceprop %s\n", tr.hitbox, tr.hitgroup, tr.physicsbone, tr.m_pEnt->GetSolid(), tr.surface.name, physprops->GetPropName( tr.surface.surfaceProps ) );
 		NDebugOverlay::Line( start, tr.endpos, 0, 255, 0, false, 10 );
 		NDebugOverlay::Line( tr.endpos, tr.endpos + tr.plane.normal * 12, 255, 255, 0, false, 10 );
 	}
@@ -540,7 +537,7 @@ void CPointClientCommand::InputCommand( inputdata_t& inputdata )
 	if ( !pClient || !pClient->GetUnknown() )
 		return;
 
-	engine->ClientCommand( pClient, "%s\n", inputdata.value.String() );
+	engine->ClientCommand( pClient, UTIL_VarArgs( "%s\n", inputdata.value.String() ) );
 }
 
 BEGIN_DATADESC( CPointClientCommand )
@@ -758,11 +755,7 @@ CON_COMMAND( say, "Display player message" )
 			pPlayer->NotePlayerTalked();
 		}
 	}
-	// This will result in a "console" say.  Ignore anything from
-	// an index greater than 0 when we don't have a player pointer, 
-	// as would be the case when a client that's connecting generates 
-	// text via a script.  This can be exploited to flood everyone off.
-	else if ( UTIL_GetCommandClientIndex() == 0 )
+	else
 	{
 		Host_Say( NULL, args, 0 );
 	}
@@ -797,24 +790,6 @@ CON_COMMAND( give, "Give item to player.\n\tArguments: <item_name>" )
 		char item_to_give[ 256 ];
 		Q_strncpy( item_to_give, args[1], sizeof( item_to_give ) );
 		Q_strlower( item_to_give );
-
-		// Don't allow regular users to create point_servercommand entities for the same reason as blocking ent_fire
-		if ( !Q_stricmp( item_to_give, "point_servercommand" ) )
-		{
-			if ( engine->IsDedicatedServer() )
-			{
-				// We allow people with disabled autokick to do it, because they already have rcon.
-				if ( pPlayer->IsAutoKickDisabled() == false )
-					return;
-			}
-			else if ( gpGlobals->maxClients > 1 )
-			{
-				// On listen servers with more than 1 player, only allow the host to create point_servercommand.
-				CBasePlayer *pHostPlayer = UTIL_GetListenServerHost();
-				if ( pPlayer != pHostPlayer )
-					return;
-			}
-		}
 
 		// Dirty hack to avoid suit playing it's pickup sound
 		if ( !Q_stricmp( item_to_give, "item_suit" ) )
@@ -1010,6 +985,39 @@ void CC_Player_BugBaitSwap( void )
 }
 static ConCommand bugswap("bug_swap", CC_Player_BugBaitSwap, "Automatically swaps the current weapon for the bug bait and back again.", FCVAR_CHEAT );
 
+//--------------------------------------------------------------------------------------
+// Purpose: Quickly switch to the physics cannon, or back to previous item - HUMAN ERROR
+//--------------------------------------------------------------------------------------
+void CC_Player_StunSwap( void )
+{
+	CBasePlayer *pPlayer = ToBasePlayer( UTIL_GetCommandClient() );
+	
+	if ( pPlayer )
+	{
+		CBaseCombatWeapon *pWeapon = pPlayer->GetActiveWeapon();
+
+		if ( pWeapon )
+		{
+			// Tell the client to stop selecting weapons
+			engine->ClientCommand( UTIL_GetCommandClient()->edict(), "cancelselect" );
+
+			const char *strWeaponName = pWeapon->GetName();
+
+			if ( !Q_stricmp( strWeaponName, "weapon_stunstick" ) || !Q_stricmp( strWeaponName, "weapon_crowbar" ) )
+			{
+				pPlayer->SelectLastItem();
+			}
+			else
+			{
+				//TERO: since can't select carry them both:
+				pPlayer->SelectItem( "weapon_crowbar" );
+				pPlayer->SelectItem( "weapon_stunstick" );
+			}
+		}
+	}
+}
+static ConCommand stunswap("stun_swap", CC_Player_StunSwap, "Automatically swaps the current weapon for the stunstick and back again." );
+
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
 void CC_Player_Use( const CCommand &args )
@@ -1138,16 +1146,8 @@ void CC_God_f (void)
 	if ( !pPlayer )
 		return;
 
-#ifdef TF_DLL
-   if ( TFGameRules() && ( TFGameRules()->IsPVEModeActive() == false ) )
-   {
-	   if ( gpGlobals->deathmatch )
-		   return;
-   }
-#else
 	if ( gpGlobals->deathmatch )
 		return;
-#endif
 
 	pPlayer->ToggleFlag( FL_GODMODE );
 	if (!(pPlayer->GetFlags() & FL_GODMODE ) )
@@ -1223,16 +1223,6 @@ void CC_setang_f (const CCommand &args)
 
 static ConCommand setang("setang", CC_setang_f, "Snap player eyes to specified pitch yaw <roll:optional> (must have sv_cheats).", FCVAR_CHEAT );
 
-static float GetHexFloat( const char *pStr )
-{
-	if ( ( pStr[0] == '0' ) && ( pStr[1] == 'x' ) )
-	{
-		uint32 f = (uint32)V_atoi64( pStr );
-		return *reinterpret_cast< const float * >( &f );
-	}
-	
-	return atof( pStr );
-}
 
 //------------------------------------------------------------------------------
 // Move position
@@ -1255,9 +1245,9 @@ CON_COMMAND_F( setpos_exact, "Move player to an exact specified origin (must hav
 	Vector oldorigin = pPlayer->GetAbsOrigin();
 
 	Vector newpos;
-	newpos.x = GetHexFloat( args[1] );
-	newpos.y = GetHexFloat( args[2] );
-	newpos.z = args.ArgC() == 4 ? GetHexFloat( args[3] ) : oldorigin.z;
+	newpos.x = atof( args[1] );
+	newpos.y = atof( args[2] );
+	newpos.z = args.ArgC() == 4 ? atof( args[3] ) : oldorigin.z;
 
 	pPlayer->Teleport( &newpos, NULL, NULL );
 
@@ -1289,9 +1279,9 @@ CON_COMMAND_F( setang_exact, "Snap player eyes and orientation to specified pitc
 	QAngle oldang = pPlayer->GetAbsAngles();
 
 	QAngle newang;
-	newang.x = GetHexFloat( args[1] );
-	newang.y = GetHexFloat( args[2] );
-	newang.z = args.ArgC() == 4 ? GetHexFloat( args[3] ) : oldang.z;
+	newang.x = atof( args[1] );
+	newang.y = atof( args[2] );
+	newang.z = args.ArgC() == 4 ? atof( args[3] ) : oldang.z;
 
 	pPlayer->Teleport( NULL, &newang, NULL );
 	pPlayer->SnapEyeAngles( newang );
@@ -1344,7 +1334,7 @@ void CC_HurtMe_f(const CCommand &args)
 		iDamage = atoi( args[ 1 ] );
 	}
 
-	pPlayer->TakeDamage( CTakeDamageInfo( pPlayer, pPlayer, iDamage, DMG_PREVENT_PHYSICS_FORCE ) );
+	pPlayer->TakeDamage( CTakeDamageInfo( pPlayer, pPlayer, iDamage, DMG_GENERIC ) );
 }
 
 static ConCommand hurtme("hurtme", CC_HurtMe_f, "Hurts the player.\n\tArguments: <health to lose>", FCVAR_CHEAT);
@@ -1417,9 +1407,6 @@ static int DescribeGroundList( CBaseEntity *ent )
 
 void CC_GroundList_f(const CCommand &args)
 {
-	if ( !UTIL_IsCommandIssuedByServerAdmin() )
-		return;
-
 	if ( args.ArgC() == 2 )
 	{
 		int idx = atoi( args[1] );

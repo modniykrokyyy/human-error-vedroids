@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -63,6 +63,7 @@ enum StalkerBeamPower_e
 #define STALKER_AE_MELEE_HIT			1
 
 ConVar	sk_stalker_health( "sk_stalker_health","0");
+ConVar  sk_stalker_regen_time( "sk_stalker_regen_time", "0.1503", FCVAR_NONE, "Time taken for a stalker to regenerate a point of health." );
 ConVar	sk_stalker_melee_dmg( "sk_stalker_melee_dmg","0");
 
 extern void		SpawnBlood(Vector vecSpot, const Vector &vAttackDir, int bloodColor, float flDamage);
@@ -128,6 +129,7 @@ BEGIN_DATADESC( CNPC_Stalker )
 	DEFINE_FIELD( m_nextSmokeTime, FIELD_TIME ),
 	DEFINE_FIELD( m_iPlayerAggression, FIELD_INTEGER ),
 	DEFINE_FIELD( m_flNextScreamTime, FIELD_TIME ),
+	DEFINE_FIELD( m_flTimeLastRegen, FIELD_TIME ),
 
 	// Function Pointers
 	DEFINE_THINKFUNC( StalkerThink ),
@@ -144,9 +146,16 @@ int	CNPC_Stalker::OnTakeDamage_Alive( const CTakeDamageInfo &inputInfo )
 	CTakeDamageInfo info = inputInfo;
 
 	// --------------------------------------------
-	//	Don't take a lot of damage from Vortigaunt
+	//	Don't take a lot of damage from Vortigaunt... or Alien Grunts... or Alien Controllers, lets not forget about Controller!
+	//  And if we don't want to take damage from Grunts, then we don't want to take damage from their bees either!
+	//  And the fireballs of the Controllers are defined as CLASS_BEE, so, that's double no for bees. And of course it would
+	//  be super good if rebels didn't give any damage either, so... lets not take much damage from them either, okay? OKAY?
 	// --------------------------------------------
-	if (info.GetAttacker()->Classify() == CLASS_VORTIGAUNT)
+	if (info.GetAttacker()->Classify() == CLASS_VORTIGAUNT || 
+		info.GetAttacker()->Classify() == CLASS_ALIENGRUNT || 
+		info.GetAttacker()->Classify() == CLASS_ALIENCONTROLLER ||
+		info.GetAttacker()->Classify() == CLASS_BEE || 
+		info.GetAttacker()->Classify() == CLASS_CITIZEN_REBEL )
 	{
 		info.ScaleDamage( 0.25 );
 	}
@@ -155,10 +164,10 @@ int	CNPC_Stalker::OnTakeDamage_Alive( const CTakeDamageInfo &inputInfo )
 	int ret = BaseClass::OnTakeDamage_Alive( info );
 
 	// If player shot me make sure I'm mad at him even if I wasn't earlier
-	if ( (info.GetAttacker()->GetFlags() & FL_CLIENT) )
+	/*if ( (info.GetAttacker()->GetFlags() & FL_CLIENT) )
 	{
 		AddClassRelationship( CLASS_PLAYER, D_HT, 0 );
-	}
+	}*/
 	return ret;
 }
 
@@ -195,6 +204,10 @@ float CNPC_Stalker::MaxYawSpeed( void )
 //-----------------------------------------------------------------------------
 Class_T CNPC_Stalker::Classify( void )
 {
+	//TERO: If we are parented to a pod we don't want to be killed
+	//if (GetMoveParent())
+	//	return CLASS_NONE;
+
 	return CLASS_STALKER;
 }
 
@@ -206,6 +219,38 @@ void CNPC_Stalker::PrescheduleThink()
 	{
 		EmitSound( "NPC_Stalker.Ambient01" );
 		m_flNextBreatheSoundTime = gpGlobals->curtime + 3.0 + random->RandomFloat( 0.0, 5.0 );
+	}
+
+	// TERO: this behavior is copied from Player Allies
+
+	if( GetHealth() >= GetMaxHealth() )
+	{
+		// Avoid huge deltas on first regeneration of health after long period of time at full health.
+		m_flTimeLastRegen = gpGlobals->curtime;
+	}
+	else if ( sk_stalker_regen_time.GetFloat() != 0 ) 
+	{
+		float flDelta = gpGlobals->curtime - m_flTimeLastRegen;
+		float flHealthPerSecond = 1.0f / sk_stalker_regen_time.GetFloat();
+
+		float flHealthRegen = flHealthPerSecond * flDelta;
+
+		if ( g_pGameRules->IsSkillLevel(SKILL_HARD) )
+			flHealthRegen *= 0.5f;
+		else if ( g_pGameRules->IsSkillLevel(SKILL_EASY) )
+			flHealthRegen *= 1.5f;
+
+		m_flTimeLastRegen = gpGlobals->curtime;
+
+		TakeHealth( flHealthRegen, DMG_GENERIC );
+	}
+
+	// TERO: copied from Eli
+	// Figure out if Stalker has just been removed from his parent
+	if ( GetMoveType() == MOVETYPE_NONE && !GetMoveParent() )
+	{
+		SetupWithoutParent();
+		SetupVPhysicsHull();
 	}
 }
 
@@ -282,8 +327,8 @@ void CNPC_Stalker::Spawn( void )
 	m_iHealth			= sk_stalker_health.GetFloat();
 	m_flFieldOfView		= 0.1;// indicates the width of this NPC's forward view cone ( as a dotproduct result )
 	m_NPCState			= NPC_STATE_NONE;
-	CapabilitiesAdd( bits_CAP_SQUAD | bits_CAP_MOVE_GROUND );
 	CapabilitiesAdd( bits_CAP_INNATE_RANGE_ATTACK1);
+	CapabilitiesAdd( bits_CAP_FRIENDLY_DMG_IMMUNE );
 
 	m_flNextAttackSoundTime		= 0;
 	m_flNextBreatheSoundTime	= gpGlobals->curtime + random->RandomFloat( 0.0, 10.0 );
@@ -296,6 +341,8 @@ void CNPC_Stalker::Spawn( void )
 	m_fBeamRechargeTime			= 0;
 	m_fNextDamageTime			= 0;
 
+	m_flTimeLastRegen			= 0;
+
 	NPCInit();
 
 	m_flDistTooFar	= MAX_STALKER_FIRE_RANGE;
@@ -303,6 +350,31 @@ void CNPC_Stalker::Spawn( void )
 	m_iPlayerAggression = 0;
 
 	GetSenses()->SetDistLook(MAX_STALKER_FIRE_RANGE - 1);
+
+	// TERO: copied from Eli
+	// If Stalker has a parent, he's currently inside a pod. Prevent him from moving.
+	if ( GetMoveParent() )
+	{
+		SetSolid( SOLID_BBOX );
+		AddSolidFlags( FSOLID_NOT_STANDABLE );
+		SetMoveType( MOVETYPE_NONE );
+	}
+	else
+	{
+		SetupWithoutParent();
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+void CNPC_Stalker::SetupWithoutParent( void )
+{
+	SetSolid( SOLID_BBOX );
+	AddSolidFlags( FSOLID_NOT_STANDABLE );
+	SetMoveType( MOVETYPE_STEP );
+
+	CapabilitiesAdd( bits_CAP_SQUAD | bits_CAP_MOVE_GROUND );
 }
 
 //-----------------------------------------------------------------------------

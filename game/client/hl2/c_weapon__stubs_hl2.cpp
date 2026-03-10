@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -23,6 +23,13 @@ STUB_WEAPON_CLASS( weapon_cubemap, WeaponCubemap, C_BaseCombatWeapon );
 STUB_WEAPON_CLASS( weapon_alyxgun, WeaponAlyxGun, C_HLSelectFireMachineGun );
 STUB_WEAPON_CLASS( weapon_citizenpackage, WeaponCitizenPackage, C_BaseHLCombatWeapon );
 STUB_WEAPON_CLASS( weapon_citizensuitcase, WeaponCitizenSuitcase, C_WeaponCitizenPackage );
+STUB_WEAPON_CLASS( weapon_toothbrush, WeaponToothBrush, C_BaseHLCombatWeapon );
+//STUB_WEAPON_CLASS( weapon_manhack, Weapon_Manhack, C_BaseHLCombatWeapon );
+STUB_WEAPON_CLASS( weapon_molotov, WeaponMolotov, C_BaseHLCombatWeapon );
+STUB_WEAPON_CLASS( weapon_smokegrenade, WeaponSmokeGrenade, C_BaseHLCombatWeapon );
+//STUB_WEAPON_CLASS( weapon_camera, Weapon_Camera, C_BaseHLCombatWeapon );
+//STUB_WEAPON_CLASS( weapon_turret, Weapon_Turret, C_BaseHLCombatWeapon );
+//STUB_WEAPON_CLASS( weapon_smg2, WeaponSMG2, C_HLSelectFireMachineGun );
 
 #ifndef HL2MP
 STUB_WEAPON_CLASS( weapon_ar2, WeaponAR2, C_HLMachineGun );

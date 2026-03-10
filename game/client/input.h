@@ -86,6 +86,7 @@ public:
 
 	virtual		void		CAM_Think( void );
 	virtual		int			CAM_IsThirdPerson( void );
+	virtual		void		CAM_GetCameraOffset( Vector& ofs );
 	virtual		void		CAM_ToThirdPerson(void);
 	virtual		void		CAM_ToFirstPerson(void);
 	virtual		void		CAM_StartMouseMove(void);
@@ -188,7 +189,7 @@ private:
 	{
 		MOUSE_ACCEL_THRESHHOLD1 = 0,	// if mouse moves > this many mickey's double it
 		MOUSE_ACCEL_THRESHHOLD2,		// if mouse moves > this many mickey's double it a second time
-		MOUSE_SPEED_FACTOR,				// 0 = disabled, 1 = threshold 1 enabled, 2 = threshold 2 enabled
+		MOUSE_SPEED_FACTOR,				// 1 - 20 (default 10) scale factor to accelerated mouse setting
 
 		NUM_MOUSE_PARAMS,
 	};
@@ -230,8 +231,8 @@ private:
 	bool		m_fCameraInThirdPerson;
 	// Should we move view along with mouse?
 	bool		m_fCameraMovingWithMouse;
-
-	
+	// What is the current camera offset from the view origin?
+	Vector		m_vecCameraOffset;
 	// Is the camera in distance moving mode?
 	bool		m_fCameraDistanceMove;
 	// Old and current mouse position readings.
@@ -290,4 +291,5 @@ extern void KeyUp( kbutton_t *b, const char *c );
 
 
 #endif // INPUT_H
+
 	

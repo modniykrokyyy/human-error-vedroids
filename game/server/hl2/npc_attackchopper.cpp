@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//===== Copyright � 1996-2005, Valve Corporation, All rights reserved. ======//
 //
 // Purpose: 
 //
@@ -334,6 +334,7 @@ public:
 
 	virtual void Spawn( void );
 	virtual void VPhysicsCollision( int index, gamevcollisionevent_t *pEvent );
+	//virtual void UpdateOnRemove( void );
 
 	static CHelicopterChunk *CreateHelicopterChunk( const Vector &vecPos, const QAngle &vecAngles, const Vector &vecVelocity, const char *pszModelName, int chunkID );
 
@@ -2740,7 +2741,7 @@ bool CNPC_AttackHelicopter::IsBombDropFair( const Vector &vecBombStartPos, const
 		// dx = 0.5 * a * t^2
 		Vector vecTarget = GetEnemy()->BodyTarget( GetAbsOrigin(), false );
 		float dz = vecBombStartPos.z - vecTarget.z;
-		float dt = (dz > 0.0f) ? sqrt( 2 * dz / GetCurrentGravity() ) : 0.0f;
+		float dt = (dz > 0.0f) ? sqrt( 2 * dz / sv_gravity.GetFloat() ) : 0.0f;
 
 		// Where will the enemy be in that time?
 		Vector vecEnemyVel = GetEnemy()->GetSmoothedVelocity();
@@ -2926,7 +2927,7 @@ void CNPC_AttackHelicopter::InputDropBombAtTargetInternal( inputdata_t &inputdat
 		Warning("Bomb target %s is above the chopper!\n", STRING( strBombTarget ) );
 		return;
 	}
-	float dt = sqrt( 2 * dz / GetCurrentGravity() );
+	float dt = sqrt( 2 * dz / sv_gravity.GetFloat() );
 
 	// Compute the velocity that would make it happen
 	Vector vecVelocity;
@@ -3513,11 +3514,11 @@ int CNPC_AttackHelicopter::OnTakeDamage( const CTakeDamageInfo &info )
 		float damage;
 		if( g_pGameRules->IsSkillLevel(SKILL_EASY) )
 		{
-			damage = GetMaxHealth() / sk_helicopter_num_bombs1.GetFloat();
+			damage = GetMaxHealth() / sk_helicopter_num_bombs3.GetFloat();
 		}
 		else if( g_pGameRules->IsSkillLevel(SKILL_HARD) )
 		{
-			damage = GetMaxHealth() / sk_helicopter_num_bombs3.GetFloat();
+			damage = GetMaxHealth() / sk_helicopter_num_bombs1.GetFloat();
 		}
 		else // Medium, or unspecified
 		{
@@ -3555,7 +3556,7 @@ int CNPC_AttackHelicopter::OnTakeDamage_Alive( const CTakeDamageInfo &info )
 		// Apply a force push that makes us look like we're reacting to the damage
 		Vector	damageDir = info.GetDamageForce();
 		VectorNormalize( damageDir );
-		ApplyAbsVelocityImpulse( damageDir * 500.0f );
+		ApplyAbsVelocityImpulse( damageDir * 200.0f ); //TERO: this used to be 500.0f
 
 		// Knock the helicopter off of the level, too.
 		Vector vecRight, vecForce;
@@ -3747,6 +3748,7 @@ void CNPC_AttackHelicopter::Event_Killed( const CTakeDamageInfo &info )
 
 	Chopper_BecomeChunks( this );
 	StopLoopingSounds();
+	StopSound( "BaseExplosionEffect.Sound" );
 
 	m_lifeState = LIFE_DEAD;
 
@@ -4194,7 +4196,7 @@ void CNPC_AttackHelicopter::Flight( void )
 
 	Vector vecTargetPosition;
 	float flCurrentSpeed = GetAbsVelocity().Length();
-	float flDist = MIN( flCurrentSpeed + accelRate, maxSpeed );
+	float flDist = min( flCurrentSpeed + accelRate, maxSpeed );
 	float dt = 1.0f;
 	ComputeActualTargetPosition( flDist, dt, flPerpDist, &vecTargetPosition );
 
@@ -4992,7 +4994,7 @@ void CGrenadeHelicopter::Spawn( void )
 
 	if ( HasSpawnFlags( SF_HELICOPTER_GRENADE_DUD ) )
 	{
-		m_nSkin = (int)SKIN_DUD;
+		m_nSkin = SKIN_DUD;
 	}
 
 	if ( !HasSpawnFlags( SF_GRENADE_HELICOPTER_MEGABOMB ) )
@@ -5076,6 +5078,10 @@ void CGrenadeHelicopter::UpdateOnRemove()
 		controller.SoundDestroy( m_pWarnSound );
 	}
 	g_pNotify->ClearEntity( this );
+
+	//StopSound( "NPC_CombineGunship.Explode" );
+	StopSound( "BaseExplosionEffect.Sound" );
+
 	BaseClass::UpdateOnRemove();
 }
 
@@ -5091,7 +5097,7 @@ void CGrenadeHelicopter::InputExplodeIn( inputdata_t &inputdata )
 	{
 		// We are a dud no more!
 		RemoveSpawnFlags( SF_HELICOPTER_GRENADE_DUD );
-		m_nSkin = (int)SKIN_REGULAR;
+		m_nSkin = SKIN_REGULAR;
 	}
 
 	m_bActivated = false;
@@ -5204,13 +5210,13 @@ void CGrenadeHelicopter::WarningBlinkerThink()
 		if( m_bBlinkerAtTop )
 		{
 			//m_hWarningSprite->SetParentAttachment( "SetParentAttachment", "bottom", false );
-			m_nSkin = (int)SKIN_REGULAR;
+			m_nSkin = SKIN_REGULAR;
 			m_bBlinkerAtTop = false;
 		}
 		else
 		{
 			//m_hWarningSprite->SetParentAttachment( "SetParentAttachment", "top", false );
-			m_nSkin = (int)SKIN_DUD;
+			m_nSkin = SKIN_DUD;
 			m_bBlinkerAtTop = true;
 		}
 	}
@@ -5520,7 +5526,7 @@ void CGrenadeHelicopter::OnPhysGunPickup(CBasePlayer *pPhysGunUser, PhysGunPicku
 			SetContextThink( &CGrenadeHelicopter::WarningBlinkerThink, gpGlobals->curtime + GetBombLifetime() - 2.0f, s_pWarningBlinkerContext );
 
 #ifdef HL2_EPISODIC
-			m_nSkin = (int)SKIN_REGULAR;
+			m_nSkin = SKIN_REGULAR;
 			m_flBlinkFastTime = gpGlobals->curtime + GetBombLifetime() - 1.0f;
 #endif//HL2_EPISODIC
 			
@@ -5958,6 +5964,24 @@ void CHelicopterChunk::FallThink( void )
 		SetThink( NULL );
 		return;
 	}
+
+
+	if ( !IsInWorld() )
+	{
+		m_bLanded = true;
+		SetThink( &CHelicopterChunk::SUB_Remove );
+		SetNextThink( gpGlobals->curtime + 0.1f );
+		return;
+
+		/*CBasePlayer *pPlayer = AI_GetSinglePlayer();
+		if (pPlayer)
+		{
+			NDebugOverlay::Line( GetAbsOrigin(), pPlayer->WorldSpaceCenter(), 0, 255, 0, 0, 0.2 );
+				
+		}
+
+		DevMsg("Is not in world!\n");*/
+	}
 	
 	if ( random->RandomInt( 0, 8 ) == 0 )
 	{
@@ -6079,6 +6103,10 @@ CHelicopterChunk *CHelicopterChunk::CreateHelicopterChunk( const Vector &vecPos,
 		angImpulse = vec3_origin;
 
 		pPhysicsObject->SetVelocity(&vecChunkVelocity, &angImpulse );
+	}
+	else
+	{
+		DevMsg("creating vphysics for helicopter chunk failed!!!!\n");
 	}
 	
 	pChunk->SetThink( &CHelicopterChunk::FallThink );

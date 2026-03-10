@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -28,8 +28,7 @@
 #include "vehicle_jeep.h"
 #include "eventqueue.h"
 #include "rumble_shared.h"
-// NVNT haptic utils
-#include "haptics/haptic_utils.h"
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -137,6 +136,9 @@ BEGIN_DATADESC( CPropJeep )
 	DEFINE_INPUTFUNC( FIELD_VOID, "FinishRemoveTauCannon", InputFinishRemoveTauCannon ),
 
 	DEFINE_THINKFUNC( JeepSeagullThink ),
+
+	DEFINE_INPUTFUNC( FIELD_VOID, "ForcePlayerIn",InputForcePlayerIn ),
+	DEFINE_INPUTFUNC( FIELD_VOID, "ForcePlayerOut",InputForcePlayerOut ),
 END_DATADESC()
 
 IMPLEMENT_SERVERCLASS_ST( CPropJeep, DT_PropJeep )
@@ -671,6 +673,38 @@ void CPropJeep::CreateRipple( const Vector &vecPosition )
 }
 
 //-----------------------------------------------------------------------------
+// Purpose: These will be useful for weapon_manhack
+//-----------------------------------------------------------------------------
+void CPropJeep::InputForcePlayerIn(inputdata_t &inputdata)
+{
+	CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
+	if ( !pPlayer || m_hPlayer )
+		return;
+
+	// Make sure we successfully got in the vehicle
+	if ( pPlayer->GetInVehicle( GetServerVehicle(), VEHICLE_ROLE_DRIVER ) == false )
+	{
+		// The player was unable to enter the vehicle and the output has failed
+		Assert(0);
+		return;
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: These will be useful for weapon_manhack
+//-----------------------------------------------------------------------------
+void CPropJeep::InputForcePlayerOut(inputdata_t &inputdata)
+{
+	CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
+	if ( !pPlayer || !m_hPlayer )
+		return;
+
+	// Make sure we successfully got in the vehicle
+	pPlayer->LeaveVehicle(GetAbsOrigin(), GetAbsAngles());
+}
+
+
+//-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
 void CPropJeep::Think( void )
@@ -785,10 +819,15 @@ void CPropJeep::Think( void )
 				}
 			}
 
-			// The first few time we get into the jeep, print the jeep help
-			if ( m_iNumberOfEntries < hud_jeephint_numentries.GetInt() )
+			//TERO: only if we have suit
+			if ( pPlayer && pPlayer->IsSuitEquipped() )
 			{
-				g_EventQueue.AddEvent( this, "ShowHudHint", 1.5f, this, this );
+
+				// The first few time we get into the jeep, print the jeep help
+				if ( m_iNumberOfEntries < hud_jeephint_numentries.GetInt() )
+				{
+					g_EventQueue.AddEvent( this, "ShowHudHint", 1.5f, this, this );
+				}
 			}
 		}
 		
@@ -883,9 +922,6 @@ void CPropJeep::DrawBeam( const Vector &startPos, const Vector &endPos, float wi
 	pBeam->SetEndWidth( 0.1f );
 }
 
-// NVNT Convar for jeep cannon magnitude
-ConVar hap_jeep_cannon_mag("hap_jeep_cannon_mag", "10", 0);
-
 //-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
@@ -905,10 +941,6 @@ void CPropJeep::FireCannon( void )
 	Vector aimDir;
 	GetCannonAim( &aimDir );
 
-#if defined( WIN32 ) && !defined( _X360 ) 
-	// NVNT apply a punch on fire
-	HapticPunch(m_hPlayer,0,0,hap_jeep_cannon_mag.GetFloat());
-#endif
 	FireBulletsInfo_t info( 1, m_vecGunOrigin, aimDir, VECTOR_CONE_1DEGREES, MAX_TRACE_LENGTH, m_nAmmoType );
 
 	info.m_nFlags = FIRE_BULLETS_ALLOW_WATER_SURFACE_IMPACTS;

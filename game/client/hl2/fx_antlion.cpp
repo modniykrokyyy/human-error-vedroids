@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -10,6 +10,18 @@
 #include "c_te_effect_dispatch.h"
 #include "iefx.h"
 #include "decals.h"
+#include "c_fire_smoke.h"
+
+/*#include "particles_simple.h"
+#include "ClientEffectPrecacheSystem.h"
+#include "particles_attractor.h"
+#include "c_te_effect_dispatch.h"
+#include "fx_quad.h"
+#include "dlight.h"
+// For material proxy
+#include "ProxyEntity.h"
+#include "materialsystem/IMaterial.h"
+#include "materialsystem/IMaterialVar.h"*/
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -98,7 +110,7 @@ class C_AntlionGib : public C_Gib
 	typedef C_Gib BaseClass;
 public:
 	
-	static C_AntlionGib *CreateClientsideGib( const char *pszModelName, Vector vecOrigin, Vector vecForceDir, AngularImpulse vecAngularImp, float m_flLifetime = DEFAULT_GIB_LIFETIME )
+	static C_AntlionGib *C_AntlionGib::CreateClientsideGib( const char *pszModelName, Vector vecOrigin, Vector vecForceDir, AngularImpulse vecAngularImp, float m_flLifetime = DEFAULT_GIB_LIFETIME )
 	{
 		C_AntlionGib *pGib = new C_AntlionGib;
 
@@ -193,12 +205,12 @@ void FX_AntlionGib( const Vector &origin, const Vector &direction, float scale )
 	// Cache this if we're not already
 	if ( g_Material_Blood[0] == NULL )
 	{
-		g_Material_Blood[0] = g_Mat_BloodPuff[0];
+		g_Material_Blood[0] = pSimple->GetPMaterial( "effects/blood" );
 	}
 	
 	if ( g_Material_Blood[1] == NULL )
 	{
-		g_Material_Blood[1] = g_Mat_BloodPuff[1];
+		g_Material_Blood[1] = pSimple->GetPMaterial( "effects/blood2" );
 	}
 
 	Vector	vDir;
@@ -261,13 +273,15 @@ void FX_AntlionGib( const Vector &origin, const Vector &direction, float scale )
 	CSmartPtr<CSimpleEmitter> pSimple = CSimpleEmitter::Create( "FX_AntlionGib" );
 	pSimple->SetSortOrigin( origin );
 
+	PMaterialHandle	hMaterial = pSimple->GetPMaterial( "effects/blood" );
+
 	Vector	vDir;
 
 	vDir.Random( -1.0f, 1.0f );
 
 	for ( int i = 0; i < 4; i++ )
 	{
-		SimpleParticle *sParticle = (SimpleParticle *) pSimple->AddParticle( sizeof( SimpleParticle ), g_Mat_BloodPuff[0], origin );
+		SimpleParticle *sParticle = (SimpleParticle *) pSimple->AddParticle( sizeof( SimpleParticle ), hMaterial, origin );
 
 		if ( sParticle == NULL )
 			return;
@@ -291,9 +305,11 @@ void FX_AntlionGib( const Vector &origin, const Vector &direction, float scale )
 		sParticle->m_flRollDelta	= random->RandomFloat( -1.0f, 1.0f );
 	}
 
+	hMaterial = pSimple->GetPMaterial( "effects/blood2" );
+
 	for ( int i = 0; i < 4; i++ )
 	{
-		SimpleParticle *sParticle = (SimpleParticle *) pSimple->AddParticle( sizeof( SimpleParticle ), g_Mat_BloodPuff[1], origin );
+		SimpleParticle *sParticle = (SimpleParticle *) pSimple->AddParticle( sizeof( SimpleParticle ), hMaterial, origin );
 
 		if ( sParticle == NULL )
 		{
@@ -332,3 +348,70 @@ void AntlionGibCallback( const CEffectData &data )
 }
 
 DECLARE_CLIENT_EFFECT( "AntlionGib", AntlionGibCallback );
+
+void FX_BeeCorpse( const Vector &origin, const Vector &direction )
+{
+	Vector offset = origin;
+	C_AntlionGib::CreateClientsideGib( "models/weapons/bee.mdl", offset, ( direction + RandomVector( -0.8f, 0.8f ) ), RandomAngularImpulse( -32, 32 ), 2.0f);
+
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+// Input  : &data - 
+//-----------------------------------------------------------------------------
+void BeeCorpseCallback( const CEffectData &data )
+{
+	FX_BeeCorpse( data.m_vOrigin, data.m_vNormal);
+}
+
+DECLARE_CLIENT_EFFECT( "BeeCorpse", BeeCorpseCallback );
+
+
+
+void FX_FireBallChunk( const Vector &origin, const Vector &direction )
+{
+	Vector offset = origin;
+	#define NUMBER_OF_FIRE_CHUNKS 3
+	for (int i = 0; i< NUMBER_OF_FIRE_CHUNKS; i++)
+	{
+		C_AntlionGib *pGib = C_AntlionGib::CreateClientsideGib( "models/gibs/hgibs.mdl", offset, ( direction + RandomVector( -80.0f, 80.0f ) ), RandomAngularImpulse( -32, 32 ), 2.0f);
+	
+		if ( pGib )
+		{
+			pGib->AddEffects( EF_NODRAW );
+
+			CNewParticleEffect *m_hEffect = pGib->ParticleProp()->Create( "burning_gib_01", PATTACH_ABSORIGIN_FOLLOW );
+			if ( m_hEffect )
+			{
+				//C_BaseEntity *pEntity = pGib;
+				m_hEffect->SetOwner( pGib );
+	
+				pGib->ParticleProp()->AddControlPoint( m_hEffect, 1, pGib, PATTACH_ABSORIGIN_FOLLOW );
+				m_hEffect->SetControlPoint( 0, pGib->GetAbsOrigin() );
+				m_hEffect->SetControlPoint( 1, pGib->GetAbsOrigin() );
+				m_hEffect->SetControlPointEntity( 0, pGib );
+				m_hEffect->SetControlPointEntity( 1, pGib );
+			}
+			m_hEffect = NULL;
+
+			//particle\fire_particle_4\fire_particle_4.vmt
+		}	
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+// Input  : &data - 
+//-----------------------------------------------------------------------------
+void FireBallChunkCallback( const CEffectData &data )
+{
+	FX_FireBallChunk( data.m_vOrigin, data.m_vNormal);
+}
+
+DECLARE_CLIENT_EFFECT( "FireBallChunk", FireBallChunkCallback );
+
+
+
+
+

@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: This is the base version of the vortigaunt
 //
@@ -75,7 +75,7 @@ public:
 
 	virtual void		Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
 	virtual void		AlertSound( void );
-	virtual Class_T		Classify ( void ) { return IsGameEndAlly() ? CLASS_PLAYER_ALLY_VITAL : CLASS_VORTIGAUNT; }
+	virtual Class_T		Classify ( void ) { return CLASS_VORTIGAUNT; }
 	virtual void		HandleAnimEvent( animevent_t *pEvent );
 	virtual Activity	NPC_TranslateActivity( Activity eNewActivity );
 
@@ -89,6 +89,9 @@ public:
 	virtual void	DeclineFollowing( void );
 	virtual bool	CanBeUsedAsAFriend( void );
 	virtual bool	IsPlayerAlly( void ) { return true; }
+
+	//TERO: for breakable doors
+	bool	FVisible( CBaseEntity *pEntity, int traceMask = MASK_OPAQUE, CBaseEntity **ppBlocker = NULL );
 
 	// Override these to set behavior
 	virtual int		TranslateSchedule( int scheduleType );
@@ -138,6 +141,9 @@ public:
 	// used so a grub can notify me that I stepped on it. Says a line.
 	void	OnSquishedGrub( const CBaseEntity *pGrub );
 
+	void	OpenPropDoorNow( CBasePropDoor *pDoor );
+	bool	OnInsufficientStopDist( AILocalMoveGoal_t *pMoveGoal, float distClear, AIMoveResult_t *pResult );
+
 private:
 
 	int		NumAntlionsInRadius( float flRadius );
@@ -167,6 +173,8 @@ private:
 		SCHED_VORTIGAUNT_DISPEL_ANTLIONS,
 		SCHED_VORT_FLEE_FROM_BEST_SOUND,
 		SCHED_VORT_ALERT_FACE_BESTSOUND,
+		SCHED_VORTIGAUNT_PRESS_ATTACK,
+		SCHED_VORTIGAUNT_BREAK_DOOR,
 	};
 
 	//=========================================================
@@ -182,7 +190,7 @@ private:
 		TASK_VORTIGAUNT_FIRE_EXTRACT_OUTPUT,
 		TASK_VORTIGAUNT_WAIT_FOR_PLAYER,
 		TASK_VORTIGAUNT_GET_HEAL_TARGET,
-		TASK_VORTIGAUNT_DISPEL_ANTLIONS
+		TASK_VORTIGAUNT_DISPEL_ANTLIONS,
 	};
 
 	//=========================================================
@@ -196,6 +204,7 @@ private:
 		COND_VORTIGAUNT_HEAL_TARGET_BEHIND_US,	// Not within our "forward" range
 		COND_VORTIGAUNT_HEAL_VALID,				// All conditions satisfied	
 		COND_VORTIGAUNT_DISPEL_ANTLIONS,		// Repulse all antlions around us
+		COND_VORTIGAUNT_CAN_BREAK_DOOR,
 	};
 
 	// ------------
@@ -205,6 +214,7 @@ private:
 	void			ClearBeams( void );
 	void			ArmBeam( int beamType, int nHand );
 	void			ZapBeam( int nHand );
+	void			ZapPhysicsEntity(CBaseEntity *pEntity);
 	int				m_nLightningSprite;
 
 	// ---------------
@@ -268,6 +278,9 @@ private:
 
 	// used for fading to black
 	CNetworkVar( bool, m_bIsBlack );
+
+	EHANDLE			m_hDoor;
+	float			m_flNextZapDoor;
 
 public:
 	DECLARE_SERVERCLASS();

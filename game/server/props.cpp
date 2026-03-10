@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//===== Copyright © 1996-2005, Valve Corporation, All rights reserved. ======//
 //
 // Purpose: static_prop - don't move, don't animate, don't do anything.
 //			physics_prop - move, take damage, but don't animate
@@ -41,6 +41,8 @@
 #include "physics_collisionevent.h"
 #include "gamestats.h"
 #include "vehicle_base.h"
+
+#include "Human_Error/hlss_debris_maker.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -263,7 +265,7 @@ void CBaseProp::Activate( void )
 	// Make sure mapmakers haven't used the wrong prop type.
 	if ( m_takedamage == DAMAGE_NO && m_iHealth != 0 )
 	{
-		Warning("%s has a health specified in model '%s'. Use prop_physics or prop_dynamic instead.\n", GetClassname(), STRING(GetModelName()) );
+		Warning("%s has a health specified in model '%s'. Use prop_physics or prop_dynamic instead.\n", GetClassname(), GetModelName() );
 	}
 }
 
@@ -741,8 +743,6 @@ BEGIN_DATADESC( CBreakableProp )
 	DEFINE_FIELD( m_hBreaker, FIELD_EHANDLE ),
 	DEFINE_KEYFIELD( m_PerformanceMode, FIELD_INTEGER, "PerformanceMode" ),
 
-	DEFINE_KEYFIELD( m_iszBreakModelMessage, FIELD_STRING, "BreakModelMessage" ),
-
 	DEFINE_FIELD( m_flDmgModBullet, FIELD_FLOAT ),
 	DEFINE_FIELD( m_flDmgModClub, FIELD_FLOAT ),
 	DEFINE_FIELD( m_flDmgModExplosive, FIELD_FLOAT ),
@@ -756,6 +756,9 @@ BEGIN_DATADESC( CBreakableProp )
 	DEFINE_FIELD( m_iNumBreakableChunks, FIELD_INTEGER ),
 	DEFINE_FIELD( m_nPhysgunState, FIELD_CHARACTER ),
 	DEFINE_KEYFIELD( m_iszPuntSound, FIELD_STRING, "puntsound" ),
+
+	//TERO
+	DEFINE_FIELD( m_iDontBreakIfMaxGibs, FIELD_INTEGER ),
 
 	DEFINE_KEYFIELD( m_flPressureDelay, FIELD_FLOAT, "PressureDelay" ),
 	DEFINE_FIELD( m_preferredCarryAngles, FIELD_VECTOR ),
@@ -818,6 +821,8 @@ CBreakableProp::CBreakableProp()
 	
 	// This defaults to on. Most times mapmakers won't specify a punt sound to play.
 	m_bUsePuntSound = true;
+
+	m_iDontBreakIfMaxGibs = 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -1036,6 +1041,25 @@ void CBreakableProp::BreakablePropTouch( CBaseEntity *pOther )
 int CBreakableProp::OnTakeDamage( const CTakeDamageInfo &inputInfo )
 {
 	CTakeDamageInfo info = inputInfo;
+
+	if ( GetDontBreakIfMaxGibs() > 0 )
+	{
+		if ((GetDontBreakIfMaxGibs() + g_ActiveGibCount) >= ACTIVE_GIB_LIMIT )
+		{
+			//DevMsg("CBreakableProp: maxgibs to %d, active gibs %d, max gibs %d\n", GetDontBreakIfMaxGibs(), g_ActiveGibCount, ACTIVE_GIB_LIMIT);
+			return 0;
+		}
+
+#ifdef GAME_DLL
+		const int BREATHING_ROOM = 64;
+
+		if (GetDontBreakIfMaxGibs() + engine->GetEntityCount() + BREATHING_ROOM >= MAX_EDICTS)
+		{
+			//DevMsg("CBreakableProp: maxgibs set to %d, active edicts %d, max edicts %d\n", GetDontBreakIfMaxGibs(), engine->GetEntityCount() + BREATHING_ROOM, MAX_EDICTS);
+			return 0;
+		}
+#endif
+	}
 
 	// If attacker can't do at least the min required damage to us, don't take any damage from them
  	if ( info.GetDamage() < m_iMinHealthDmg )
@@ -1517,7 +1541,7 @@ void CBreakableProp::OnPhysGunDrop( CBasePlayer *pPhysGunUser, PhysGunDrop_t Rea
 
 	SetPhysicsAttacker( pPhysGunUser, gpGlobals->curtime );
 
-	if( (int)Reason == (int)PUNTED_BY_CANNON )
+	if( Reason == PUNTED_BY_CANNON )
 	{
 		PlayPuntSound(); 
 	}
@@ -1700,8 +1724,7 @@ void CBreakableProp::Break( CBaseEntity *pBreaker, const CTakeDamageInfo &info )
 		}
 		else
 		{
-			float flScale = GetModelScale();
-			ExplosionCreate( WorldSpaceCenter(), angles, pAttacker, m_explodeDamage * flScale, m_explodeRadius * flScale,
+			ExplosionCreate( WorldSpaceCenter(), angles, pAttacker, m_explodeDamage, m_explodeRadius, 
 				SF_ENVEXPLOSION_NOSPARKS | SF_ENVEXPLOSION_NODLIGHTS | SF_ENVEXPLOSION_NOSMOKE | SF_ENVEXPLOSION_SURFACEONLY,
 				0.0f, this );
 		}
@@ -1721,23 +1744,8 @@ void CBreakableProp::Break( CBaseEntity *pBreaker, const CTakeDamageInfo &info )
 		// collide with debris being ejected by breaking
 		params.defCollisionGroup = COLLISION_GROUP_INTERACTIVE;
 	}
+
 	params.defBurstScale = 100;
-
-	if ( m_iszBreakModelMessage != NULL_STRING )
-	{
-		CPVSFilter filter( GetAbsOrigin() );
-		UserMessageBegin( filter, STRING( m_iszBreakModelMessage ) );
-		WRITE_SHORT( GetModelIndex() );
-		WRITE_VEC3COORD( GetAbsOrigin() );
-		WRITE_ANGLES( GetAbsAngles() );
-		MessageEnd();
-
-#ifndef HL2MP
-		UTIL_Remove( this );
-#endif
-		return;
-	}
-
 	// in multiplayer spawn break models as clientside temp ents
 	if ( gpGlobals->maxClients > 1 && breakable_multiplayer.GetBool() )
 	{
@@ -1822,7 +1830,6 @@ BEGIN_DATADESC( CDynamicProp )
 	DEFINE_KEYFIELD( m_flMinRandAnimTime, FIELD_FLOAT, "MinAnimTime"),
 	DEFINE_KEYFIELD( m_flMaxRandAnimTime, FIELD_FLOAT, "MaxAnimTime"),
 	DEFINE_KEYFIELD( m_bStartDisabled, FIELD_BOOLEAN, "StartDisabled" ),
-	DEFINE_KEYFIELD( m_bDisableBoneFollowers, FIELD_BOOLEAN, "DisableBoneFollowers" ),
 	DEFINE_FIELD(	 m_bUseHitboxesForRenderBox, FIELD_BOOLEAN ),
 	DEFINE_FIELD(	m_nPendingSequence, FIELD_SHORT ),
 		
@@ -1937,18 +1944,6 @@ void CDynamicProp::Spawn( )
 	}
 
 	//m_debugOverlays |= OVERLAY_ABSBOX_BIT;
-
-#ifdef TF_DLL
-	const char *pszModelName = modelinfo->GetModelName( GetModel() );
-	if ( pszModelName && pszModelName[0] )
-	{
-		if ( FStrEq( pszModelName, "models/bots/boss_bot/carrier_parts.mdl" ) )
-		{
-			SetModelIndexOverride( VISION_MODE_NONE, modelinfo->GetModelIndex( pszModelName ) );
-			SetModelIndexOverride( VISION_MODE_ROME, modelinfo->GetModelIndex( "models/bots/tw2/boss_bot/twcarrier_addon.mdl" ) );
-		}
-	}
-#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -1993,10 +1988,7 @@ bool CDynamicProp::CreateVPhysics( void )
 	if ( GetSolid() == SOLID_NONE || ((GetSolidFlags() & FSOLID_NOT_SOLID) && HasSpawnFlags(SF_DYNAMICPROP_NO_VPHYSICS)))
 		return true;
 
-	if ( !m_bDisableBoneFollowers )
-	{
-		CreateBoneFollowers();
-	}
+	CreateBoneFollowers();
 
 	if ( m_BoneFollowerManager.GetNumBoneFollowers() )
 	{
@@ -3227,7 +3219,7 @@ int CPhysicsProp::DrawDebugTextOverlays(void)
 				text_offset++;
 			}
 
-			Q_snprintf(tempstr, sizeof(tempstr),"Skin: %d", m_nSkin.Get() );
+			Q_snprintf(tempstr, sizeof(tempstr),"Skin: %d", m_nSkin );
 			EntityText( text_offset, tempstr, 0);
 			text_offset++;
 
@@ -3268,7 +3260,12 @@ static CBreakableProp *BreakModelCreate_Prop( CBaseEntity *pOwner, breakmodel_t 
 		}
 		pEntity->SetModelName( AllocPooledString( pModel->modelName ) );
 		pEntity->SetModel( STRING(pEntity->GetModelName()) );
+
 		pEntity->SetCollisionGroup( pModel->collisionGroup );
+		/*if (pModel->collisionGroup == COLLISION_GROUP_DEBRIS)
+			pEntity->SetCollisionGroup( COLLISION_GROUP_INTERACTIVE );
+		else
+			pEntity->SetCollisionGroup( COLLISION_GROUP_NONE );*/
 
 		if ( pModel->fadeMinDist > 0 && pModel->fadeMaxDist >= pModel->fadeMinDist )
 		{
@@ -3323,7 +3320,7 @@ CBaseEntity *BreakModelCreateSingle( CBaseEntity *pOwner, breakmodel_t *pModel, 
 
 	if ( !pModel->isRagdoll )
 	{
-		pEntity = BreakModelCreate_Prop( pOwner, pModel, position, angles, params );
+		pEntity = BreakModelCreate_Prop( pOwner, pModel, position, angles, params ); //replace HULL with pOwner
 	}
 	else
 	{
@@ -4668,6 +4665,90 @@ enum PropDoorRotatingOpenDirection_e
 	DOOR_ROTATING_OPEN_BACKWARD,
 };
 
+
+//===============================================
+// HUMAN ERROR, BREAKABLE DOORS FOR GRUNTS - TERO
+//===============================================
+
+
+void CBasePropDoor::BreakDoors(Vector vecOrigin, AngularImpulse angImpulse)
+{
+	//TERO: only break friends if we are closed
+	if (IsDoorClosed())
+	{
+		if (GetMaster())
+		{
+			GetMaster()->BreakDoors(vecOrigin, angImpulse);
+			return;
+		}
+
+		CBasePropDoor *pTarget = NULL;
+		while ( (pTarget = (CBasePropDoor*)gEntList.FindEntityByName( pTarget, m_SlaveName )) != NULL)
+		{
+			pTarget->BreakDoor(vecOrigin, angImpulse);
+		}
+	}
+
+	BreakDoor(vecOrigin, angImpulse);
+}
+
+void CBasePropDoor::BreakDoor(Vector vecOrigin, AngularImpulse angImpulse)
+{
+
+	//DevMsg("trying to create  physics prop");
+
+	// Try to create entity
+	CPhysicsProp *pProp = dynamic_cast< CPhysicsProp * >( CreateEntityByName( "prop_physics" ) );
+	if ( pProp )
+	{
+		char buf[512];
+		// Pass in standard key values
+		Q_snprintf( buf, sizeof(buf), "%.10f %.10f %.10f", GetAbsOrigin().x, GetAbsOrigin().y, GetAbsOrigin().z );
+		pProp->KeyValue( "origin", buf );
+		Q_snprintf( buf, sizeof(buf), "%.10f %.10f %.10f", GetAbsAngles().x, GetAbsAngles().y, GetAbsAngles().z );
+		pProp->KeyValue( "angles", buf );
+		pProp->KeyValue( "model", STRING(GetModelName()) );
+		pProp->KeyValue( "fademindist", "-1" );
+		pProp->KeyValue( "fademaxdist", "0" );
+		pProp->KeyValue( "fadescale", "1" );
+		pProp->KeyValue( "inertiaScale", "1.0" );
+		pProp->KeyValue( "physdamagescale", "0.1" );
+
+		pProp->Precache();
+		DispatchSpawn( pProp );
+		pProp->m_nSkin = m_nSkin;
+		pProp->SetBodygroup(1, GetBodygroup(1));
+		pProp->Activate();
+
+		IPhysicsObject *pPhysObj = pProp->VPhysicsGetObject();
+
+		if( pPhysObj )
+		{
+			Vector v = WorldSpaceCenter() - vecOrigin;
+			VectorNormalize(v);
+
+			// Send the object at 800 in/sec toward the enemy.  Add 200 in/sec up velocity to keep it
+			// in the air for a second or so.
+			v = v * 1000;
+			v.z += 100;
+
+			pPhysObj->AddVelocity( &v, &angImpulse );
+		}
+
+		//TERO: since interactive debris doesn't allow collision with player, I needed to code this crap
+		//pProp->SetCollisionGroup( COLLISION_GROUP_INTERACTIVE_DEBRIS );
+		//TERO: the door should become debris after a time
+		CHLSS_Debris_Maker::Create( pProp );
+
+		m_OnOpen.FireOutput( this, this );
+
+		RemoveSpawnFlags(SF_BREAKABLE_BY_AGRUNTS);
+
+
+		UTIL_Remove( this );
+	}
+}
+
 //===============================================
 // Rotating prop door
 //===============================================
@@ -4829,6 +4910,12 @@ void CPropDoorRotating::Spawn()
 	// Figure out our volumes of movement as this door opens
 	CalculateDoorVolume( GetLocalAngles(), m_angRotationOpenForward, &m_vecForwardBoundsMin, &m_vecForwardBoundsMax );
 	CalculateDoorVolume( GetLocalAngles(), m_angRotationOpenBack, &m_vecBackBoundsMin, &m_vecBackBoundsMax );
+
+	//TERO: we want the vortigaunts to see through these doors
+	/*if (HasSpawnFlags( SF_BREAKABLE_BY_AGRUNTS ))
+	{
+		SetBlocksLOS( false );
+	}*/
 }
 
 //-----------------------------------------------------------------------------
@@ -5521,13 +5608,8 @@ class CPhysicsPropMultiplayer : public CPhysicsProp, public IMultiplayerPhysics
 	DECLARE_SERVERCLASS();
 	DECLARE_DATADESC();
 
-	CPhysicsPropMultiplayer()
-	{
-		m_iPhysicsMode = PHYSICS_MULTIPLAYER_AUTODETECT;
-		m_usingCustomCollisionBounds = false;
-		m_fMass = 0.f;
-	}
-
+	CPhysicsPropMultiplayer();
+	
 // IBreakableWithPropData:
 	void SetPhysicsMode(int iMode)
 	{
@@ -5619,8 +5701,7 @@ class CPhysicsPropMultiplayer : public CPhysicsProp, public IMultiplayerPhysics
 			SetCollisionGroup( COLLISION_GROUP_DEBRIS );
 		}
 
-		if(VPhysicsGetObject())
-			m_fMass = VPhysicsGetObject()->GetMass();
+		m_fMass = VPhysicsGetObject()->GetMass();
 
 		// VPhysicsGetObject() is NULL on the client, which prevents the client from finding a decent
 		// AABB surrounding the collision bounds.  If we've got a VPhysicsGetObject()->GetCollide(), we'll
@@ -5656,6 +5737,12 @@ private:
 	CNetworkVector( m_collisionMins );
 	CNetworkVector( m_collisionMaxs );
 };
+
+CPhysicsPropMultiplayer::CPhysicsPropMultiplayer()
+{
+	m_iPhysicsMode = PHYSICS_MULTIPLAYER_AUTODETECT;
+	m_usingCustomCollisionBounds = false;
+}
 
 LINK_ENTITY_TO_CLASS( prop_physics_multiplayer, CPhysicsPropMultiplayer );
 
@@ -5949,7 +6036,6 @@ CPhysicsProp* CreatePhysicsProp( const char *pModelName, const Vector &vTraceSta
 
 	return pProp;
 }
-
 //-----------------------------------------------------------------------------
 // Purpose: Scale the object to a new size, taking its render verts and physical verts into account
 //-----------------------------------------------------------------------------

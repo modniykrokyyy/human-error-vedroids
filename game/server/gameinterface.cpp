@@ -562,6 +562,86 @@ CServerGameDLL g_ServerGameDLL;
 //EXPOSE_SINGLE_INTERFACE_GLOBALVAR(CServerGameDLL, IServerGameDLL008, INTERFACEVERSION_SERVERGAMEDLL_VERSION_8, g_ServerGameDLL );
 EXPOSE_SINGLE_INTERFACE_GLOBALVAR(CServerGameDLL, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL, g_ServerGameDLL);
 
+static void MountAdditionalContent()
+{
+	KeyValues *pMainFile, *pExtraContent, *pContentKey;
+	bool bFileFound, bKVHack = true;
+	int nExtraContentId;
+	char gamePath[256];
+ 
+	engine->GetGameDir( gamePath, 256 );
+	Q_StripTrailingSlash( gamePath );
+ 
+	pMainFile = new KeyValues( "gameinfo.txt" );
+ 
+	//On linux because of case sensitiviy we need to check for both.
+#ifdef _LINUX
+	bFileFound = pMainFile->LoadFromFile( filesystem, UTIL_VarArgs("%s/GameInfo.txt", gamePath), "MOD" );
+	if ( !bFileFound )
+#endif
+	bFileFound = pMainFile->LoadFromFile( filesystem, UTIL_VarArgs("%s/gameinfo.txt", gamePath), "MOD" );
+	if ( bFileFound )
+	{
+		pExtraContent = pMainFile->FindKey( "FileSystem" );
+		if ( pExtraContent )
+		{
+			pExtraContent = pExtraContent->FindKey( "AdditionalContentId" );
+			if ( pExtraContent )
+			{
+				pContentKey = pExtraContent->GetFirstSubKey();
+				if ( pContentKey )
+				{
+					do {
+						//HACK: key and value cannot be accesed uniformly
+						if( bKVHack )
+							nExtraContentId = V_atoi( pContentKey->GetName() );
+						else
+							nExtraContentId = pContentKey->GetInt();
+ 
+						if ( nExtraContentId == 0 )
+						{
+							if( !bKVHack && !pContentKey->GetNextKey() )
+							{
+								//the KeyValues will have been complaining about a missing key
+								Msg( "(Server) Dear user, this code has detected, that you've received one KeyValues Error in the console. Do not worry about it.\n" );
+								break;
+							}
+							Warning( "(Server) Extra content appId \'%s\' is no integer\n", bKVHack ? pContentKey->GetName() : pContentKey->GetString() );
+						}
+						else if ( nExtraContentId == INT_MAX || nExtraContentId == INT_MIN )
+							Warning( "(Server) Extra content appId \'%s\' is out of range\n", bKVHack ? pContentKey->GetName() : pContentKey->GetString() );
+						else if ( filesystem->MountSteamContent( -abs( nExtraContentId ) ) != FILESYSTEM_MOUNT_OK )
+							Warning( "(Server) Unable to mount extra content with appId: %i\n", nExtraContentId );
+						else
+							DevMsg( "(Server) Successfully mounted extra content with appId: %i\n", nExtraContentId );
+ 
+						//HACK
+						if( bKVHack ) {
+							bKVHack = false;
+							continue;
+						}
+						else
+							bKVHack = true;
+ 
+						pContentKey = pContentKey->GetNextKey();
+					} while( pContentKey );
+				}
+				else
+				{
+					nExtraContentId = pExtraContent->GetInt();
+					if ( nExtraContentId == 0 )
+						Warning( "(Server) AdditionalContentId specified with invalid appId: %s\n", pExtraContent->GetString() );
+					else if ( filesystem->MountSteamContent( -abs( nExtraContentId ) ) != FILESYSTEM_MOUNT_OK )
+						Warning( "(Server) Unable to mount extra content with appId: %i\n", nExtraContentId );
+					else
+						DevMsg( "(Server) Successfully mounted extra content with appId: %i\n", nExtraContentId );
+				}
+			}
+		}
+	}
+	pMainFile->deleteThis();
+}
+
 // When bumping the version to this interface, check that our assumption is still valid and expose the older version in the same way
 COMPILE_TIME_ASSERT( INTERFACEVERSION_SERVERGAMEDLL_INT == 10 );
 
@@ -636,6 +716,8 @@ bool CServerGameDLL::DLLInit( CreateInterfaceFn appSystemFactory,
 	// Yes, both the client and game .dlls will try to Connect, the soundemittersystem.dll will handle this gracefully
 	if ( !soundemitterbase->Connect( appSystemFactory ) )
 		return false;
+
+	MountAdditionalContent();
 
 	// cache the globals
 	gpGlobals = pGlobals;
@@ -1630,7 +1712,13 @@ static TITLECOMMENT gTitleComments[] =
 	{ "escape_",				"#Portal_Chapter11_Title"  },
 	{ "background2",			"#Portal_Chapter12_Title"  },
 #else
-	{ "intro", "#HL2_Chapter1_Title" },
+	{ "he01_intro", "#Human_Error_Chapter1_Title" },
+	{ "he01_01",	"#Human_Error_Chapter2_Title" },
+	{ "he01_02",	"#Human_Error_Chapter2_Title" },
+	{ "he02_01",	"#Human_Error_Chapter3_Title" },
+	{ "he02_02",	"#Human_Error_Chapter3_Title" },
+	{ "he03_01",	"#Human_Error_Chapter4_Title" },
+	{ "he03_02",	"#Human_Error_Chapter4_Title" },
 
 	{ "d1_trainstation_05", "#HL2_Chapter2_Title" },
 	{ "d1_trainstation_06", "#HL2_Chapter2_Title" },
@@ -1707,7 +1795,6 @@ static TITLECOMMENT gTitleComments[] =
 	{ "ep2_outland_11", "#ep2_Chapter6_Title" },
 	
 	{ "ep2_outland_12a", "#ep2_Chapter7_Title" },
-	{ "ep2_outland_12", "#ep2_Chapter6_Title" },
 #endif
 };
 
@@ -2119,12 +2206,14 @@ void UpdateChapterRestrictions( const char *mapname )
 	strlwr( chapterTitle );
 	
 	// Get our active mod directory name
-	char modDir[MAX_PATH];
+	/*char modDir[MAX_PATH];
 	if ( UTIL_GetModDir( modDir, sizeof(modDir) ) == false )
 		return;
 
 	char chapterNumberPrefix[64];
-	Q_snprintf(chapterNumberPrefix, sizeof(chapterNumberPrefix), "#%s_chapter", modDir);
+	Q_snprintf(chapterNumberPrefix, sizeof(chapterNumberPrefix), "#%s_chapter", modDir);*/
+
+	char chapterNumberPrefix[64] = "#human_error_chapter";
 
 	const char *newChapterNumber = strstr( chapterTitle, chapterNumberPrefix );
 	if ( newChapterNumber )
@@ -2145,7 +2234,7 @@ void UpdateChapterRestrictions( const char *mapname )
 
 		// HACK: HL2 added a zany chapter "9a" which wreaks
 		//       havoc in this stupid atoi-based chapter code.
-		if ( !Q_stricmp( modDir, "hl2" ) )
+		/*if ( !Q_stricmp( modDir, "hl2" ) )
 		{
 			if ( !Q_stricmp( newChapter, "9a" ) )
 			{
@@ -2155,7 +2244,7 @@ void UpdateChapterRestrictions( const char *mapname )
 			{
 				nNewChapter++;
 			}
-		}
+		}*/
 
 		// ok we have the string, see if it's newer
 		const char *unlockedChapter = sv_unlockedchapters.GetString();

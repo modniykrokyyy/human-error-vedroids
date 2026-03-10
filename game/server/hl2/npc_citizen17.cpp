@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: The downtrodden citizens of City 17.
 //
@@ -16,7 +16,6 @@
 #include "hl2_player.h"
 #include "items.h"
 
-
 #ifdef HL2MP
 #include "hl2mp/weapon_crowbar.h"
 #else
@@ -33,6 +32,11 @@
 #include "ai_looktarget.h"
 #include "sceneentity.h"
 #include "tier0/icommandline.h"
+#include "movevars_shared.h"
+
+#include "weapon_molotov.h"
+#include "grenade_molotov.h"
+#include "Human_Error/grenade_smoke.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -50,28 +54,18 @@ extern ConVar sk_healthvial;
 const int MAX_PLAYER_SQUAD = 4;
 
 ConVar	sk_citizen_health				( "sk_citizen_health",					"0");
-ConVar	sk_citizen_heal_player			( "sk_citizen_heal_player",				"25");
-ConVar	sk_citizen_heal_player_delay	( "sk_citizen_heal_player_delay",		"25");
-ConVar	sk_citizen_giveammo_player_delay( "sk_citizen_giveammo_player_delay",	"10");
-ConVar	sk_citizen_heal_player_min_pct	( "sk_citizen_heal_player_min_pct",		"0.60");
-ConVar	sk_citizen_heal_player_min_forced( "sk_citizen_heal_player_min_forced",		"10.0");
 ConVar	sk_citizen_heal_ally			( "sk_citizen_heal_ally",				"30");
 ConVar	sk_citizen_heal_ally_delay		( "sk_citizen_heal_ally_delay",			"20");
 ConVar	sk_citizen_heal_ally_min_pct	( "sk_citizen_heal_ally_min_pct",		"0.90");
-ConVar	sk_citizen_player_stare_time	( "sk_citizen_player_stare_time",		"1.0" );
-ConVar  sk_citizen_player_stare_dist	( "sk_citizen_player_stare_dist",		"72" );
 ConVar	sk_citizen_stare_heal_time		( "sk_citizen_stare_heal_time",			"5" );
-
 ConVar	g_ai_citizen_show_enemy( "g_ai_citizen_show_enemy", "0" );
-
-ConVar	npc_citizen_insignia( "npc_citizen_insignia", "0" );
-ConVar	npc_citizen_squad_marker( "npc_citizen_squad_marker", "0" );
-ConVar	npc_citizen_explosive_resist( "npc_citizen_explosive_resist", "0" );
-ConVar	npc_citizen_auto_player_squad( "npc_citizen_auto_player_squad", "1" );
-ConVar	npc_citizen_auto_player_squad_allow_use( "npc_citizen_auto_player_squad_allow_use", "0" );
-
-
 ConVar	npc_citizen_dont_precache_all( "npc_citizen_dont_precache_all", "0" );
+
+ConVar	sk_citizen_player_stare_time	( "sk_citizen_player_stare_time",		"6.0" );
+ConVar  sk_citizen_player_stare_dist	( "sk_citizen_player_stare_dist",		"72" );
+
+ConVar	sk_citizen_reaction_delay		( "sk_citizen_reaction_delay", "0.75");
+
 
 
 ConVar  npc_citizen_medic_emit_sound("npc_citizen_medic_emit_sound", "1" );
@@ -80,25 +74,20 @@ ConVar  npc_citizen_medic_emit_sound("npc_citizen_medic_emit_sound", "1" );
 ConVar  npc_citizen_heal_chuck_medkit("npc_citizen_heal_chuck_medkit" , "1" , FCVAR_ARCHIVE, "Set to 1 to use new experimental healthkit-throwing medic.");
 ConVar npc_citizen_medic_throw_style( "npc_citizen_medic_throw_style", "1", FCVAR_ARCHIVE, "Set to 0 for a lobbier trajectory" );
 ConVar npc_citizen_medic_throw_speed( "npc_citizen_medic_throw_speed", "650" );
-ConVar	sk_citizen_heal_toss_player_delay("sk_citizen_heal_toss_player_delay", "26", FCVAR_NONE, "how long between throwing healthkits" );
 
+ConVar	sk_citizen_heal_ally_min_forced( "sk_citizen_heal_player_min_forced",		"10.0");
+
+ConVar	sk_citizen_heal_toss_ally_delay("sk_citizen_heal_toss_player_delay", "26", FCVAR_NONE, "how long between throwing healthkits" );
 
 #define MEDIC_THROW_SPEED npc_citizen_medic_throw_speed.GetFloat()
 #define USE_EXPERIMENTAL_MEDIC_CODE() (npc_citizen_heal_chuck_medkit.GetBool() && NameMatches("griggs"))
 #endif
 
-ConVar player_squad_autosummon_time( "player_squad_autosummon_time", "5" );
-ConVar player_squad_autosummon_move_tolerance( "player_squad_autosummon_move_tolerance", "20" );
-ConVar player_squad_autosummon_player_tolerance( "player_squad_autosummon_player_tolerance", "10" );
-ConVar player_squad_autosummon_time_after_combat( "player_squad_autosummon_time_after_combat", "8" );
-ConVar player_squad_autosummon_debug( "player_squad_autosummon_debug", "0" );
-
-#define ShouldAutosquad() (npc_citizen_auto_player_squad.GetBool())
-
 enum SquadSlot_T
 {
 	SQUAD_SLOT_CITIZEN_RPG1	= LAST_SHARED_SQUADSLOT,
 	SQUAD_SLOT_CITIZEN_RPG2,
+	SQUAD_SLOT_CITIZEN_MOLOTOV,
 };
 
 const float HEAL_MOVE_RANGE = 30*12;
@@ -115,12 +104,6 @@ const float RPG_SAFE_DISTANCE = CMissile::EXPLOSION_RADIUS + 64.0;
 int AE_CITIZEN_GET_PACKAGE;
 int AE_CITIZEN_HEAL;
 
-//-------------------------------------
-//-------------------------------------
-
-ConVar	ai_follow_move_commands( "ai_follow_move_commands", "1" );
-ConVar	ai_citizen_debug_commander( "ai_citizen_debug_commander", "1" );
-#define DebuggingCommanderMode() (ai_citizen_debug_commander.GetBool() && (m_debugOverlays & OVERLAY_NPC_SELECTED_BIT))
 
 //-----------------------------------------------------------------------------
 // Citizen expressions for the citizen expression types
@@ -162,82 +145,6 @@ citizen_expression_list_t AngryExpressions[STATES_WITH_EXPRESSIONS] =
 	{ "scenes/Expressions/citizen_angry_combat_01.vcd" },
 };
 
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-
-#define COMMAND_POINT_CLASSNAME "info_target_command_point"
-
-class CCommandPoint : public CPointEntity
-{
-	DECLARE_CLASS( CCommandPoint, CPointEntity );
-public:
-	CCommandPoint()
-		: m_bNotInTransition(false)
-	{
-		if ( ++gm_nCommandPoints > 1 )
-			DevMsg( "WARNING: More than one citizen command point present\n" );
-	}
-
-	~CCommandPoint()
-	{
-		--gm_nCommandPoints;
-	}
-
-	int ObjectCaps()
-	{
-		int caps = ( BaseClass::ObjectCaps() | FCAP_NOTIFY_ON_TRANSITION );
-
-		if ( m_bNotInTransition )
-			caps |= FCAP_DONT_SAVE;
-
-		return caps;
-	}
-
-	void InputOutsideTransition( inputdata_t &inputdata )
-	{
-		if ( !AI_IsSinglePlayer() )
-			return;
-
-		m_bNotInTransition = true;
-
-		CAI_Squad *pPlayerAISquad = g_AI_SquadManager.FindSquad(AllocPooledString(PLAYER_SQUADNAME));
-
-		if ( pPlayerAISquad )
-		{
-			AISquadIter_t iter;
-			for ( CAI_BaseNPC *pAllyNpc = pPlayerAISquad->GetFirstMember(&iter); pAllyNpc; pAllyNpc = pPlayerAISquad->GetNextMember(&iter) )
-			{
-				if ( pAllyNpc->GetCommandGoal() != vec3_invalid )
-				{
-					bool bHadGag = pAllyNpc->HasSpawnFlags(SF_NPC_GAG);
-
-					pAllyNpc->AddSpawnFlags(SF_NPC_GAG);
-					pAllyNpc->TargetOrder( UTIL_GetLocalPlayer(), &pAllyNpc, 1 );
-					if ( !bHadGag )
-						pAllyNpc->RemoveSpawnFlags(SF_NPC_GAG);
-				}
-			}
-		}
-	}
-	DECLARE_DATADESC();
-
-private:
-	bool m_bNotInTransition; // does not need to be saved. If this is ever not default, the object is not being saved.
-	static int gm_nCommandPoints;
-};
-
-int CCommandPoint::gm_nCommandPoints;
-
-LINK_ENTITY_TO_CLASS( info_target_command_point, CCommandPoint );
-BEGIN_DATADESC( CCommandPoint )
-	
-//	DEFINE_FIELD( m_bNotInTransition,	FIELD_BOOLEAN ),
-	DEFINE_INPUTFUNC( FIELD_VOID,	"OutsideTransition",	InputOutsideTransition ),
-
-END_DATADESC()
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
 
 class CMattsPipe : public CWeaponCrowbar
 {
@@ -306,7 +213,6 @@ BEGIN_DATADESC( CNPC_Citizen )
 	DEFINE_FIELD( 		m_flNextFearSoundTime, 		FIELD_TIME ),
 	DEFINE_FIELD( 		m_flStopManhackFlinch, 		FIELD_TIME ),
 	DEFINE_FIELD( 		m_fNextInspectTime, 		FIELD_TIME ),
-	DEFINE_FIELD( 		m_flPlayerHealTime, 		FIELD_TIME ),
 	DEFINE_FIELD(		m_flNextHealthSearchTime,	FIELD_TIME ),
 	DEFINE_FIELD( 		m_flAllyHealTime, 			FIELD_TIME ),
 //						gm_PlayerSquadEvaluateTimer
@@ -315,57 +221,48 @@ BEGIN_DATADESC( CNPC_Citizen )
 //						m_StandoffBehavior
 //						m_LeadBehavior
 //						m_FuncTankBehavior
-	DEFINE_FIELD( 		m_flPlayerGiveAmmoTime, 	FIELD_TIME ),
-	DEFINE_KEYFIELD(	m_iszAmmoSupply, 			FIELD_STRING,	"ammosupply" ),
-	DEFINE_KEYFIELD(	m_iAmmoAmount, 				FIELD_INTEGER,	"ammoamount" ),
-	DEFINE_FIELD( 		m_bRPGAvoidPlayer, 			FIELD_BOOLEAN ),
-	DEFINE_FIELD( 		m_bShouldPatrol, 			FIELD_BOOLEAN ),
-	DEFINE_FIELD( 		m_iszOriginalSquad, 		FIELD_STRING ),
-	DEFINE_FIELD( 		m_flTimeJoinedPlayerSquad,	FIELD_TIME ),
-	DEFINE_FIELD( 		m_bWasInPlayerSquad, FIELD_BOOLEAN ),
-	DEFINE_FIELD( 		m_flTimeLastCloseToPlayer,	FIELD_TIME ),
-	DEFINE_EMBEDDED(	m_AutoSummonTimer ),
-	DEFINE_FIELD(		m_vAutoSummonAnchor, FIELD_POSITION_VECTOR ),
-	DEFINE_KEYFIELD(	m_Type, 					FIELD_INTEGER,	"citizentype" ),
-	DEFINE_KEYFIELD(	m_ExpressionType,			FIELD_INTEGER,	"expressiontype" ),
+	DEFINE_KEYFIELD(	m_Type, 					FIELD_INTEGER,			"citizentype" ),
+	DEFINE_KEYFIELD(	m_ExpressionType,			FIELD_INTEGER,			"expressiontype" ),
 	DEFINE_FIELD(		m_iHead,					FIELD_INTEGER ),
 	DEFINE_FIELD(		m_flTimePlayerStare,		FIELD_TIME ),
 	DEFINE_FIELD(		m_flTimeNextHealStare,		FIELD_TIME ),
 	DEFINE_FIELD( 		m_hSavedFollowGoalEnt,		FIELD_EHANDLE ),
-	DEFINE_KEYFIELD(	m_bNotifyNavFailBlocked,	FIELD_BOOLEAN, "notifynavfailblocked" ),
-	DEFINE_KEYFIELD(	m_bNeverLeavePlayerSquad,	FIELD_BOOLEAN, "neverleaveplayersquad" ),
-	DEFINE_KEYFIELD(	m_iszDenyCommandConcept,	FIELD_STRING, "denycommandconcept" ),
+	//DEFINE_FIELD(		m_bIsInVan,					FIELD_BOOLEAN ),
 
-	DEFINE_OUTPUT(		m_OnJoinedPlayerSquad,	"OnJoinedPlayerSquad" ),
-	DEFINE_OUTPUT(		m_OnLeftPlayerSquad,	"OnLeftPlayerSquad" ),
-	DEFINE_OUTPUT(		m_OnFollowOrder,		"OnFollowOrder" ),
-	DEFINE_OUTPUT(		m_OnStationOrder,		"OnStationOrder" ),
-	DEFINE_OUTPUT(		m_OnPlayerUse,			"OnPlayerUse" ),
-	DEFINE_OUTPUT(		m_OnNavFailBlocked,		"OnNavFailBlocked" ),
+	DEFINE_FIELD(		m_hSmokeGrenade,			FIELD_EHANDLE ),
 
-	DEFINE_INPUTFUNC( FIELD_VOID,	"RemoveFromPlayerSquad", InputRemoveFromPlayerSquad ),
-	DEFINE_INPUTFUNC( FIELD_VOID,	"StartPatrolling",	InputStartPatrolling ),
-	DEFINE_INPUTFUNC( FIELD_VOID,	"StopPatrolling",	InputStopPatrolling ),
-	DEFINE_INPUTFUNC( FIELD_VOID,	"SetCommandable",	InputSetCommandable ),
-	DEFINE_INPUTFUNC( FIELD_VOID,	"SetMedicOn",	InputSetMedicOn ),
-	DEFINE_INPUTFUNC( FIELD_VOID,	"SetMedicOff",	InputSetMedicOff ),
-	DEFINE_INPUTFUNC( FIELD_VOID,	"SetAmmoResupplierOn",	InputSetAmmoResupplierOn ),
-	DEFINE_INPUTFUNC( FIELD_VOID,	"SetAmmoResupplierOff",	InputSetAmmoResupplierOff ),
-	DEFINE_INPUTFUNC( FIELD_VOID,	"SpeakIdleResponse", InputSpeakIdleResponse ),
+	DEFINE_FIELD(		m_bParentedToTruck,			FIELD_BOOLEAN ),
 
-#if HL2_EPISODIC
-	DEFINE_INPUTFUNC( FIELD_VOID,   "ThrowHealthKit", InputForceHealthKitToss ),
+#ifdef CITIZEN_MAKE_BLIND_IN_SMOKE
+	DEFINE_FIELD(		m_bIsBlind,					FIELD_BOOLEAN ),
 #endif
 
-	DEFINE_USEFUNC( CommanderUse ),
+	DEFINE_FIELD( m_flStopMoveShootTime,			FIELD_TIME ),
+
+	DEFINE_KEYFIELD( m_iNumberMolotovCocktails,		FIELD_INTEGER,			"molotovcocktails" ),
+	DEFINE_FIELD( m_flNextMolotovCocktail,			FIELD_TIME ),
+//	DEFINE_FIELD( m_flTimeHasHadMolotov,			FIELD_TIME ),
+	DEFINE_FIELD( m_vecTossVelocity,				FIELD_VECTOR ),
+
+	DEFINE_OUTPUT(		m_OnPlayerUse,				"OnPlayerUse" ),
+	DEFINE_OUTPUT(		m_OnNavFailBlocked,			"OnNavFailBlocked" ),
+
+	DEFINE_INPUTFUNC( FIELD_VOID,					"StartPatrolling",		InputStartPatrolling ),
+	DEFINE_INPUTFUNC( FIELD_VOID,					"StopPatrolling",		InputStopPatrolling ),
+	DEFINE_INPUTFUNC( FIELD_VOID,					"SetMedicOn",			InputSetMedicOn ),
+	DEFINE_INPUTFUNC( FIELD_VOID,					"SetMedicOff",			InputSetMedicOff ),
+	DEFINE_INPUTFUNC( FIELD_VOID,					"SpeakIdleResponse",	InputSpeakIdleResponse ),
+
+	DEFINE_INPUTFUNC( FIELD_VOID,					"ReturnNormalMovement", InputReturnNormalMovement ),
+
+#if HL2_EPISODIC
+	DEFINE_INPUTFUNC( FIELD_VOID,   "				ThrowHealthKit",		InputForceHealthKitToss ),
+#endif
 	DEFINE_USEFUNC( SimpleUse ),
 
 END_DATADESC()
 
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
 
-CSimpleSimTimer CNPC_Citizen::gm_PlayerSquadEvaluateTimer;
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -376,6 +273,16 @@ bool CNPC_Citizen::CreateBehaviors()
 	AddBehavior( &m_FuncTankBehavior );
 	
 	return true;
+}
+
+extern ConVar ai_reaction_delay_idle;
+
+float CNPC_Citizen::GetReactionDelay( CBaseEntity *pEnemy )
+{
+	return ( m_NPCState == NPC_STATE_ALERT || m_NPCState == NPC_STATE_COMBAT ) ? 
+				sk_citizen_reaction_delay.GetFloat() : 
+				ai_reaction_delay_idle.GetFloat();
+
 }
 
 //-----------------------------------------------------------------------------
@@ -398,6 +305,8 @@ void CNPC_Citizen::Precache()
 	PrecacheScriptSound( "NPC_Citizen.FootstepLeft" );
 	PrecacheScriptSound( "NPC_Citizen.FootstepRight" );
 	PrecacheScriptSound( "NPC_Citizen.Die" );
+
+	PrecacheScriptSound( "NPC_Citizen.cough" );
 
 	PrecacheInstancedScene( "scenes/Expressions/CitizenIdle.vcd" );
 	PrecacheInstancedScene( "scenes/Expressions/CitizenAlert_loop.vcd" );
@@ -462,27 +371,18 @@ void CNPC_Citizen::Spawn()
 	AddSpawnFlags( SF_NPC_FADE_CORPSE );
 #endif // _XBOX
 
-	if ( ShouldAutosquad() )
-	{
-		if ( m_SquadName == GetPlayerSquadName() )
-		{
-			CAI_Squad *pPlayerSquad = g_AI_SquadManager.FindSquad( GetPlayerSquadName() );
-			if ( pPlayerSquad && pPlayerSquad->NumMembers() >= MAX_PLAYER_SQUAD )
-				m_SquadName = NULL_STRING;
-		}
-		gm_PlayerSquadEvaluateTimer.Force();
-	}
-
-	if ( IsAmmoResupplier() )
-		m_nSkin = 2;
-	
-	m_bRPGAvoidPlayer = false;
-
 	m_bShouldPatrol = false;
 	m_iHealth = sk_citizen_health.GetFloat();
+
+	//m_bIsInVan = false;
+
+	CapabilitiesRemove( bits_CAP_NO_HIT_PLAYER );
+	CapabilitiesAdd( bits_CAP_INNATE_RANGE_ATTACK2 );
+
+	m_bParentedToTruck = false;
 	
 	// Are we on a train? Used in trainstation to have NPCs on trains.
-	if ( GetMoveParent() && FClassnameIs( GetMoveParent(), "func_tracktrain" ) )
+	if ( Classify() == CLASS_CITIZEN_PASSIVE && GetMoveParent() && FClassnameIs( GetMoveParent(), "func_tracktrain" ) )
 	{
 		CapabilitiesRemove( bits_CAP_MOVE_GROUND );
 		SetMoveType( MOVETYPE_NONE );
@@ -496,6 +396,20 @@ void CNPC_Citizen::Spawn()
 			SetSequenceByName( "d1_t01_TrainRide_Stand" );
 			SetIdealActivity( ACT_DO_NOT_DISTURB );
 		}
+	} else if ( GetMoveParent() && FClassnameIs( GetMoveParent(), "func_tracktrain" ))
+	{
+		CapabilitiesRemove( bits_CAP_MOVE_GROUND );
+		CapabilitiesAdd( bits_CAP_SKIP_NAV_GROUND_CHECK );
+		SetMoveType( MOVETYPE_NONE );
+		GetMotor()->SetYawLocked( true );
+
+		AddFlag( FL_FLY );
+
+		m_NPCState = NPC_STATE_ALERT;
+
+		m_bParentedToTruck = true;
+
+		DevMsg("In a truck\n" );
 	}
 
 	m_flStopManhackFlinch = -1;
@@ -503,8 +417,6 @@ void CNPC_Citizen::Spawn()
 	m_iszIdleExpression = MAKE_STRING("scenes/expressions/citizenidle.vcd");
 	m_iszAlertExpression = MAKE_STRING("scenes/expressions/citizenalert_loop.vcd");
 	m_iszCombatExpression = MAKE_STRING("scenes/expressions/citizencombat_loop.vcd");
-
-	m_iszOriginalSquad = m_SquadName;
 
 	m_flNextHealthSearchTime = gpGlobals->curtime;
 
@@ -517,44 +429,81 @@ void CNPC_Citizen::Spawn()
 
 	m_flTimePlayerStare = FLT_MAX;
 
-	AddEFlags( EFL_NO_DISSOLVE | EFL_NO_MEGAPHYSCANNON_RAGDOLL | EFL_NO_PHYSCANNON_INTERACTION );
+	//AddEFlags( EFL_NO_DISSOLVE | EFL_NO_MEGAPHYSCANNON_RAGDOLL | EFL_NO_PHYSCANNON_INTERACTION );
 
 	NPCInit();
 
-	SetUse( &CNPC_Citizen::CommanderUse );
-	Assert( !ShouldAutosquad() || !IsInPlayerSquad() );
+	ClearCondition(COND_CIT_CAN_HAVE_MOLOTOV);
 
-	m_bWasInPlayerSquad = IsInPlayerSquad();
+	//DevMsg("m_iNumberMolotovCocktails %d\n", m_iNumberMolotovCocktails);
 
 	// Use render bounds instead of human hull for guys sitting in chairs, etc.
 	m_ActBusyBehavior.SetUseRenderBounds( HasSpawnFlags( SF_CITIZEN_USE_RENDER_BOUNDS ) );
+
+	m_flNextMolotovCocktail = 0.0f;
+//	m_flTimeHasHadMolotov   = 0.0f;
+
+	//TERO: copied from npc_combine.cpp
+	m_flStopMoveShootTime = FLT_MAX;
+	m_MoveAndShootOverlay.SetInitialDelay( 0.75f ); //sk_citizen_reaction_delay.GetFloat()
+
+#ifdef CITIZEN_MAKE_BLIND_IN_SMOKE
+	m_bIsBlind			= false;
+#endif
+	m_hSmokeGrenade			= NULL;
 }
+
+/*void CNPC_Citizen::CalculateIKLocks( float currentTime ) 
+{
+	if (m_bIsInVan)
+		return;
+
+	BaseClass::CalculateIKLocks( currentTime );
+}
+
+void CNPC_Citizen::UpdateStepOrigin()
+{
+	if (m_bIsInVan)
+		return;
+
+	BaseClass::UpdateStepOrigin();
+}*/
+
+void CNPC_Citizen::InputReturnNormalMovement(inputdata_t &inputdata)
+{
+	if ( GetMoveType() == MOVETYPE_NONE )
+	{
+		SetParent( NULL );
+		SetGroundEntity( NULL );
+
+		CapabilitiesAdd( bits_CAP_MOVE_GROUND );
+		CapabilitiesRemove( bits_CAP_SKIP_NAV_GROUND_CHECK );
+		SetMoveType( MOVETYPE_STEP );
+		GetMotor()->SetYawLocked( false );
+
+		RemoveFlag(FL_FLY);
+
+		m_bParentedToTruck = false;
+
+		SetAbsOrigin( GetAbsOrigin() + Vector(0,0,1) );
+
+	}
+
+	//m_NPCState = NPC_STATE_ALERT;
+}
+
+/*bool CNPC_Citizen::OverrideMoveFacing( const AILocalMoveGoal_t &move, float flInterval )
+{
+	if (m_bParentedToTruck) // && !IsCurSchedule( SCHED_COMBAT_FACE ) )
+		return true;
+
+	return OverrideMoveFacing( AILocalMoveGoal_t &move, flInterval )
+}*/
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 void CNPC_Citizen::PostNPCInit()
 {
-	if ( !gEntList.FindEntityByClassname( NULL, COMMAND_POINT_CLASSNAME ) )
-	{
-		CreateEntityByName( COMMAND_POINT_CLASSNAME );
-	}
-	
-	if ( IsInPlayerSquad() )
-	{
-		if ( m_pSquad->NumMembers() > MAX_PLAYER_SQUAD )
-			DevMsg( "Error: Spawning citizen in player squad but exceeds squad limit of %d members\n", MAX_PLAYER_SQUAD );
-
-		FixupPlayerSquad();
-	}
-	else
-	{
-		if ( ( m_spawnflags & SF_CITIZEN_FOLLOW ) && AI_IsSinglePlayer() )
-		{
-			m_FollowBehavior.SetFollowTarget( UTIL_GetLocalPlayer() );
-			m_FollowBehavior.SetParameters( AIF_SIMPLE );
-		}
-	}
-
 	BaseClass::PostNPCInit();
 }
 
@@ -781,14 +730,7 @@ void CNPC_Citizen::Activate()
 //-----------------------------------------------------------------------------
 void CNPC_Citizen::OnRestore()
 {
-	gm_PlayerSquadEvaluateTimer.Force();
-
 	BaseClass::OnRestore();
-
-	if ( !gEntList.FindEntityByClassname( NULL, COMMAND_POINT_CLASSNAME ) )
-	{
-		CreateEntityByName( COMMAND_POINT_CLASSNAME );
-	}
 }
 
 //-----------------------------------------------------------------------------
@@ -824,7 +766,7 @@ Class_T	CNPC_Citizen::Classify()
 	if (GlobalEntity_GetState("citizens_passive") == GLOBAL_ON)
 		return CLASS_CITIZEN_PASSIVE;
 
-	return CLASS_PLAYER_ALLY;
+	return CLASS_CITIZEN_REBEL;
 }
 
 //-----------------------------------------------------------------------------
@@ -894,28 +836,7 @@ void CNPC_Citizen::GatherConditions()
 {
 	BaseClass::GatherConditions();
 
-	if( IsInPlayerSquad() && hl2_episodic.GetBool() )
-	{
-		// Leave the player squad if someone has made me neutral to player.
-		if( IRelationType(UTIL_GetLocalPlayer()) == D_NU )
-		{
-			RemoveFromPlayerSquad();
-		}
-	}
-
-	if ( !SpokeConcept( TLK_JOINPLAYER ) && IsRunningScriptedSceneWithSpeech( this, true ) )
-	{
-		SetSpokeConcept( TLK_JOINPLAYER, NULL );
-		for ( int i = 0; i < g_AI_Manager.NumAIs(); i++ )
-		{
-			CAI_BaseNPC *pNpc = g_AI_Manager.AccessAIs()[i];
-			if ( pNpc != this && pNpc->GetClassname() == GetClassname() && pNpc->GetAbsOrigin().DistToSqr( GetAbsOrigin() ) < Square( 15*12 ) && FVisible( pNpc ) )
-			{
-				(assert_cast<CNPC_Citizen *>(pNpc))->SetSpokeConcept( TLK_JOINPLAYER, NULL );
-			}
-		}
-	}
-
+	/*
 	if( ShouldLookForHealthItem() )
 	{
 		if( FindHealthItem( GetAbsOrigin(), Vector( 240, 240, 240 ) ) )
@@ -924,11 +845,13 @@ void CNPC_Citizen::GatherConditions()
 			ClearCondition( COND_HEALTH_ITEM_AVAILABLE );
 
 		m_flNextHealthSearchTime = gpGlobals->curtime + 4.0;
-	}
+	}*/
+
+	MolotovThrowCondition();
 
 	// If the player is standing near a medic and can see the medic, 
 	// assume the player is 'staring' and wants health.
-	if( CanHeal() )
+	if( Classify() == CLASS_CITIZEN_PASSIVE )
 	{
 		CBasePlayer *pPlayer = AI_GetSinglePlayer();
 
@@ -940,9 +863,8 @@ void CNPC_Citizen::GatherConditions()
 
 		float flDistSqr = ( GetAbsOrigin() - pPlayer->GetAbsOrigin() ).Length2DSqr();
 		float flStareDist = sk_citizen_player_stare_dist.GetFloat();
-		float flPlayerDamage = pPlayer->GetMaxHealth() - pPlayer->GetHealth();
 
-		if( pPlayer->IsAlive() && flPlayerDamage > 0 && (flDistSqr <= flStareDist * flStareDist) && pPlayer->FInViewCone( this ) && pPlayer->FVisible( this ) )
+		if( pPlayer->IsAlive() && (flDistSqr <= flStareDist * flStareDist) && pPlayer->FInViewCone( this ) && pPlayer->FVisible( this ) )
 		{
 			if( m_flTimePlayerStare == FLT_MAX )
 			{
@@ -951,26 +873,12 @@ void CNPC_Citizen::GatherConditions()
 			}
 
 			// Heal if it's been long enough since last time I healed a staring player.
-			if( gpGlobals->curtime - m_flTimePlayerStare >= sk_citizen_player_stare_time.GetFloat() && gpGlobals->curtime > m_flTimeNextHealStare && !IsCurSchedule( SCHED_CITIZEN_HEAL ) )
+			if( gpGlobals->curtime - m_flTimePlayerStare >= sk_citizen_player_stare_time.GetFloat() && gpGlobals->curtime > m_flTimeNextHealStare )
 			{
-				if ( ShouldHealTarget( pPlayer, true ) )
-				{
-					SetCondition( COND_CIT_PLAYERHEALREQUEST );
-				}
-				else
-				{
-					m_flTimeNextHealStare = gpGlobals->curtime + sk_citizen_stare_heal_time.GetFloat() * .5f;
-					ClearCondition( COND_CIT_PLAYERHEALREQUEST );
-				}
+				//TERO: lets do something here. The player is a Metropolice so the citizen might say something like "please don't beat me"
+				m_flTimePlayerStare = gpGlobals->curtime + sk_citizen_player_stare_time.GetFloat() * .5f;
+				Speak( TLK_STARE );
 			}
-
-#ifdef HL2_EPISODIC
-			// Heal if I'm on an assault. The player hasn't had time to stare at me.
-			if( m_AssaultBehavior.IsRunning() && IsMoving() )
-			{
-				SetCondition( COND_CIT_PLAYERHEALREQUEST );
-			}
-#endif
 		}
 		else
 		{
@@ -983,26 +891,15 @@ void CNPC_Citizen::GatherConditions()
 //-----------------------------------------------------------------------------
 void CNPC_Citizen::PredictPlayerPush()
 {
-	if ( !AI_IsSinglePlayer() )
+	//we don't want them to act nice on us if they try to kill us
+	if (Classify() != CLASS_CITIZEN_PASSIVE)
 		return;
 
-	if ( HasCondition( COND_CIT_PLAYERHEALREQUEST ) )
+	CBasePlayer *pPlayer = AI_GetSinglePlayer();
+	if ( !pPlayer )
 		return;
-
-	bool bHadPlayerPush = HasCondition( COND_PLAYER_PUSHING );
 
 	BaseClass::PredictPlayerPush();
-
-	CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
-	if ( !bHadPlayerPush && HasCondition( COND_PLAYER_PUSHING ) && 
-		 pPlayer->FInViewCone( this ) && CanHeal() )
-	{
-		if ( ShouldHealTarget( pPlayer, true ) )
-		{
-			ClearCondition( COND_PLAYER_PUSHING );
-			SetCondition( COND_CIT_PLAYERHEALREQUEST );
-		}
-	}
 }
 
 //-----------------------------------------------------------------------------
@@ -1011,54 +908,73 @@ void CNPC_Citizen::PrescheduleThink()
 {
 	BaseClass::PrescheduleThink();
 
-	UpdatePlayerSquad();
-	UpdateFollowCommandPoint();
-
-	if ( !npc_citizen_insignia.GetBool() && npc_citizen_squad_marker.GetBool() && IsInPlayerSquad() )
-	{
-		Vector mins = WorldAlignMins() * .5 + GetAbsOrigin();
-		Vector maxs = WorldAlignMaxs() * .5 + GetAbsOrigin();
-		
-		float rMax = 255;
-		float gMax = 255;
-		float bMax = 255;
-
-		float rMin = 255;
-		float gMin = 128;
-		float bMin = 0;
-
-		const float TIME_FADE = 1.0;
-		float timeInSquad = gpGlobals->curtime - m_flTimeJoinedPlayerSquad;
-		timeInSquad = MIN( TIME_FADE, MAX( timeInSquad, 0 ) );
-
-		float fade = ( 1.0 - timeInSquad / TIME_FADE );
-
-		float r = rMin + ( rMax - rMin ) * fade;
-		float g = gMin + ( gMax - gMin ) * fade;
-		float b = bMin + ( bMax - bMin ) * fade;
-
-		// THIS IS A PLACEHOLDER UNTIL WE HAVE A REAL DESIGN & ART -- DO NOT REMOVE
-		NDebugOverlay::Line( Vector( mins.x, GetAbsOrigin().y, GetAbsOrigin().z+1 ), Vector( maxs.x, GetAbsOrigin().y, GetAbsOrigin().z+1 ), r, g, b, false, .11 );
-		NDebugOverlay::Line( Vector( GetAbsOrigin().x, mins.y, GetAbsOrigin().z+1 ), Vector( GetAbsOrigin().x, maxs.y, GetAbsOrigin().z+1 ), r, g, b, false, .11 );
-	}
 	if( GetEnemy() && g_ai_citizen_show_enemy.GetBool() )
 	{
 		NDebugOverlay::Line( EyePosition(), GetEnemy()->EyePosition(), 255, 0, 0, false, .1 );
 	}
-	
-	if ( DebuggingCommanderMode() )
+
+	//TERO: copied from Combine Soldiers
+	if( gpGlobals->curtime >= m_flStopMoveShootTime )
 	{
-		if ( HaveCommandGoal() )
+		// Time to stop move and shoot and start facing the way I'm running.
+		// This makes the combine look attentive when disengaging, but prevents
+		// them from always running around facing you.
+		//
+		// Only do this if it won't be immediately shut off again.
+		if( GetNavigator()->GetPathTimeToGoal() > 1.0f )
 		{
-			CBaseEntity *pCommandPoint = gEntList.FindEntityByClassname( NULL, COMMAND_POINT_CLASSNAME );
-			
-			if ( pCommandPoint )
-			{
-				NDebugOverlay::Cross3D(pCommandPoint->GetAbsOrigin(), 16, 0, 255, 255, false, 0.1 );
-			}
+			m_MoveAndShootOverlay.SuspendMoveAndShoot( 5.0f );
+			m_flStopMoveShootTime = FLT_MAX;
+		}
+	}
+
+	if( m_flGroundSpeed > 0 && GetState() == NPC_STATE_COMBAT && m_MoveAndShootOverlay.IsSuspended() )
+	{
+		// Return to move and shoot when near my goal so that I 'tuck into' the location facing my enemy.
+		if( GetNavigator()->GetPathTimeToGoal() <= 1.0f )
+		{
+			m_MoveAndShootOverlay.SuspendMoveAndShoot( 0 );
 		}
 	}
 }
+
+//-----------------------------------------------------------------------------
+// 
+//-----------------------------------------------------------------------------
+bool CNPC_Citizen::ShouldMoveAndShoot()
+{
+	// Set this timer so that gpGlobals->curtime can't catch up to it. 
+	// Essentially, we're saying that we're not going to interfere with 
+	// what the AI wants to do with move and shoot. 
+	//
+	// If any code below changes this timer, the code is saying 
+	// "It's OK to move and shoot until gpGlobals->curtime == m_flStopMoveShootTime"
+	m_flStopMoveShootTime = FLT_MAX;
+
+	if( IsCurSchedule( SCHED_HIDE_AND_RELOAD, false ) )
+		m_flStopMoveShootTime = gpGlobals->curtime + random->RandomFloat( 0.4f, 0.6f );
+
+	if( IsCurSchedule( SCHED_TAKE_COVER_FROM_BEST_SOUND, false ) )
+		return false;
+
+	/*if( IsCurSchedule( SCHED_COMBINE_TAKE_COVER_FROM_BEST_SOUND, false ) )
+		return false;
+
+	if( IsCurSchedule( SCHED_COMBINE_RUN_AWAY_FROM_BEST_SOUND, false ) )
+		return false;*/
+
+	if ( IsCurSchedule( SCHED_TAKE_COVER_FROM_ORIGIN, false ) ) 
+		return false;
+
+	if( HasCondition( COND_NO_PRIMARY_AMMO, false ) )
+		m_flStopMoveShootTime = gpGlobals->curtime + random->RandomFloat( 0.4f, 0.6f );
+
+	if( m_pSquad && IsCurSchedule( SCHED_TAKE_COVER_FROM_ENEMY, false ) )
+		m_flStopMoveShootTime = gpGlobals->curtime + random->RandomFloat( 0.4f, 0.6f );
+
+	return BaseClass::ShouldMoveAndShoot();
+}
+
 
 //-----------------------------------------------------------------------------
 // Purpose: Allows for modification of the interrupt mask for the current schedule.
@@ -1121,7 +1037,7 @@ void CNPC_Citizen::BuildScheduleTestBits()
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
-bool CNPC_Citizen::FInViewCone( CBaseEntity *pEntity )
+/*bool CNPC_Citizen::FInViewCone( CBaseEntity *pEntity )
 {
 #if 0
 	if ( IsMortar( pEntity ) )
@@ -1131,7 +1047,7 @@ bool CNPC_Citizen::FInViewCone( CBaseEntity *pEntity )
 	}
 #endif
 	return BaseClass::FInViewCone( pEntity );
-}
+}*/
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -1161,17 +1077,192 @@ int CNPC_Citizen::SelectFailSchedule( int failedSchedule, int failedTask, AI_Tas
 	return BaseClass::SelectFailSchedule( failedSchedule, failedTask, taskFailCode );
 }
 
+void CNPC_Citizen::RunAwayFromSmoke( CBaseEntity *pSmokeGrenade )
+{
+	m_hSmokeGrenade = pSmokeGrenade;
+
+	//TERO: if we are not already suspended, then do so, plz
+	if (!m_MoveAndShootOverlay.IsSuspended())
+		m_MoveAndShootOverlay.SuspendMoveAndShoot( 1.5f );
+
+//#ifdef CITIZEN_MAKE_BLIND_IN_SMOKE
+//	m_bIsBlind	= true;
+//#endif
+}
+
+void CNPC_Citizen::PainSound( const CTakeDamageInfo &info )
+{
+	if (m_hSmokeGrenade)
+	{
+		if (UTIL_DistApprox( GetAbsOrigin(), m_hSmokeGrenade->GetAbsOrigin() ) < smoke_grenade_radius.GetFloat())
+		{
+			EmitSound("npc_citizen.cough");
+			return;
+		}
+	}
+
+	SpeakIfAllowed( TLK_WOUND );
+}
+
+
+bool CNPC_Citizen::ShouldRunAwayFromSmoke( void )
+{
+	if (m_hSmokeGrenade)
+	{
+		if (UTIL_DistApprox( GetAbsOrigin(), m_hSmokeGrenade->GetAbsOrigin() ) < smoke_grenade_radius.GetFloat())
+		{
+
+#ifdef CITIZEN_MAKE_BLIND_IN_SMOKE
+			if (!m_bIsBlind)
+			{
+				MakeBlind(true);
+			}
+#endif
+
+			return true;
+		}
+	}
+
+#ifdef CITIZEN_MAKE_BLIND_IN_SMOKE
+	if (m_bIsBlind)
+	{
+		MakeBlind(false);
+	}
+#endif
+
+	return false;
+}
+
+#ifdef CITIZEN_MAKE_BLIND_IN_SMOKE
+void CNPC_Citizen::MakeBlind(bool bBlind)
+{
+	if (bBlind)
+	{
+		SetDistLook( 64.0 );
+		m_bIsBlind = true;
+	}
+	else
+	{
+		m_bIsBlind = false;
+
+		if ( HasSpawnFlags( SF_NPC_LONG_RANGE ) )
+		{
+			m_flDistTooFar	= 1e9f;
+			SetDistLook( 6000.0 );
+		}
+		else
+		{
+			SetDistLook( 2048.0 );
+		}
+	}
+}
+#endif
+
+int CNPC_Citizen::SelectIceCreamTruckSchedule()
+{
+	//TERO: hmm, this might create so problems!
+	//if ( m_hForcedInteractionPartner )
+	//	return SelectInteractionSchedule();
+
+	int nSched = SelectFlinchSchedule();
+	if ( nSched != SCHED_NONE )
+		return nSched;
+
+	if ( !GetEnemy())
+	{
+		//TERO: this is copied from SelectAlertSchedule
+		// Scan around for new enemies
+		if ( HasCondition( COND_ENEMY_DEAD ) && SelectWeightedSequence( ACT_VICTORY_DANCE ) != ACTIVITY_NOT_AVAILABLE )
+			return SCHED_ALERT_SCAN;
+
+		if ( gpGlobals->curtime - GetEnemies()->LastTimeSeen( AI_UNKNOWN_ENEMY ) < TIME_CARE_ABOUT_DAMAGE )
+			return SCHED_ALERT_FACE;
+
+		return SCHED_ALERT_STAND;
+	}
+
+	if ( HasCondition(COND_NEW_ENEMY) && gpGlobals->curtime - GetEnemies()->FirstTimeSeen(GetEnemy()) < 2.0 )
+	{
+		return SCHED_WAKE_ANGRY;
+	}
+	
+	if ( HasCondition( COND_ENEMY_DEAD ) )
+	{
+		// clear the current (dead) enemy and try to find another.
+		SetEnemy( NULL );
+		 
+		if ( ChooseEnemy() )
+		{
+			ClearCondition( COND_ENEMY_DEAD );
+			return SelectSchedule();
+		}
+
+		SetState( NPC_STATE_ALERT );
+		return SelectSchedule();
+	}
+
+	// Check if need to reload
+	if ( HasCondition( COND_LOW_PRIMARY_AMMO ) || HasCondition( COND_NO_PRIMARY_AMMO ) )
+	{
+		return SCHED_RELOAD;
+	}
+
+	//ChangeToMolotov();
+
+	if ( GetShotRegulator()->IsInRestInterval() )
+	{
+		if ( HasCondition(COND_CAN_RANGE_ATTACK1) )
+			return SCHED_COMBAT_FACE;
+	}
+
+	// we can see the enemy
+	if ( HasCondition(COND_CAN_RANGE_ATTACK1) )
+	{
+		if ( !UseAttackSquadSlots() || OccupyStrategySlotRange( SQUAD_SLOT_ATTACK1, SQUAD_SLOT_ATTACK2 ) )
+			return SCHED_RANGE_ATTACK1;
+		return SCHED_COMBAT_FACE;
+	}
+
+	if ( HasCondition(COND_CAN_RANGE_ATTACK2) && OccupyStrategySlot( SQUAD_SLOT_CITIZEN_MOLOTOV ))
+	{
+		return SCHED_CITIZEN_THROW_MOLOTOV; //SCHED_RANGE_ATTACK2;
+	}
+
+	if ( HasCondition(COND_CAN_MELEE_ATTACK1) )
+		return SCHED_MELEE_ATTACK1;
+
+	if ( HasCondition(COND_CAN_MELEE_ATTACK2) )
+		return SCHED_MELEE_ATTACK2;
+
+
+	//TERO: this is to make sure the rebels in the truck are always facing the player
+	//		it needs a bit to enable covering, though
+	return SCHED_COMBAT_FACE;
+}
+
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 int CNPC_Citizen::SelectSchedule()
 {
 	// If we can't move, we're on a train, and should be sitting.
-	if ( GetMoveType() == MOVETYPE_NONE )
+	if ( GetMoveType() == MOVETYPE_NONE) 
 	{
-		// For now, we're only ever parented to trains. If you hit this assert, you've parented a citizen
-		// to something else, and now we need to figure out a better system.
-		Assert( GetMoveParent() && FClassnameIs( GetMoveParent(), "func_tracktrain" ) );
-		return SCHED_CITIZEN_SIT_ON_TRAIN;
+		if (!m_bParentedToTruck)
+		{
+			// For now, we're only ever parented to trains. If you hit this assert, you've parented a citizen
+			// to something else, and now we need to figure out a better system.
+			Assert( GetMoveParent() && FClassnameIs( GetMoveParent(), "func_tracktrain" ) );
+			return SCHED_CITIZEN_SIT_ON_TRAIN;
+		}
+		else
+		{
+			return SelectIceCreamTruckSchedule();
+		}
+	}
+
+	if (ShouldRunAwayFromSmoke())
+	{
+		return SCHED_TAKE_COVER_FROM_ORIGIN;
 	}
 
 	CWeaponRPG *pRPG = dynamic_cast<CWeaponRPG*>(GetActiveWeapon());
@@ -1180,8 +1271,197 @@ int CNPC_Citizen::SelectSchedule()
 		DevMsg( "Citizen in select schedule but RPG is guiding?\n");
 		pRPG->StopGuiding();
 	}
+
+	//TERO: lets change to molotov cocktails if it's time
+	//ChangeToMolotov();
 	
 	return BaseClass::SelectSchedule();
+}
+
+
+
+/*void CNPC_Citizen::ChangeToMolotov()
+{
+	if (HasCondition( COND_CIT_CAN_HAVE_MOLOTOV ))
+	{
+		if 	( m_iNumberMolotovCocktails != 0 &&
+			  m_flNextMolotovCocktail < gpGlobals->curtime &&
+			  GetEnemy() &&
+			( GetEnemy()->Classify() == CLASS_PLAYER ||
+			  GetEnemy()->Classify() == CLASS_PLAYER_ALLY ||
+			  GetEnemy()->Classify() == CLASS_PLAYER_ALLY_VITAL ||
+			  GetEnemy()->Classify() == CLASS_METROPOLICE ||
+			  GetEnemy()->Classify() == CLASS_COMBINE ||
+			  GetEnemy()->Classify() == CLASS_ZOMBIE ) )
+		{
+			if (GetActiveWeapon() && FClassnameIs( GetActiveWeapon(), "weapon_molotov" ))
+			{
+				//TERO: lets wait a bit until we have thrown our last molotov away before trying to change again
+				m_flNextMolotovCocktail = gpGlobals->curtime + 10.0f;
+			}
+			else
+			{
+				if (m_iNumberMolotovCocktails>0)
+				{
+					m_iNumberMolotovCocktails--;
+					DevMsg("npc_citizen %s molotov cocktails left %d\n", GetDebugName(), m_iNumberMolotovCocktails);
+				}
+			
+				GiveWeapon( MAKE_STRING("weapon_molotov") );
+				m_flNextMolotovCocktail = gpGlobals->curtime + 15.0f;
+
+				m_flTimeHasHadMolotov = gpGlobals->curtime + 10.0f;
+			}
+		}
+	} else 
+	{
+		//If we don't no longer have the condition lets turn back to the normal weapon
+
+		if (m_flNextMolotovCocktail!= 0 )
+		{
+			if ( GetActiveWeapon() && 
+				 FClassnameIs( GetActiveWeapon(), "weapon_molotov" ) && 
+				 GetActivity() != ACT_RANGE_ATTACK_THROW )
+			{
+				if (GetWeapon(0) && !FClassnameIs( GetWeapon(0), "weapon_molotov") )	
+				{
+					CBaseCombatWeapon *pMolotov = GetActiveWeapon();
+					if (pMolotov)
+					{
+						Weapon_Drop( pMolotov );
+						UTIL_Remove( pMolotov );
+					}
+
+					if (m_iNumberMolotovCocktails>=0)
+					{
+						m_iNumberMolotovCocktails++;
+					}
+
+					DevMsg("Changing back to our previous weapon\n");
+					Weapon_Switch( GetWeapon(0) );
+
+					m_flTimeHasHadMolotov = gpGlobals->curtime + 15.0f;
+				}
+			}//end check current weapon
+
+			m_flNextMolotovCocktail = 0;
+		}//end check time
+	}//end if no condition
+}*/
+
+
+void CNPC_Citizen::MolotovThrowCondition()
+{
+	if (!GetEnemy() || 
+		GetEnemy()->Classify() == CLASS_MANHACK || 
+		GetEnemy()->Classify() == CLASS_SCANNER ||
+		GetEnemy()->Classify() == CLASS_HEADCRAB ||
+		GetEnemy()->Classify() == CLASS_COMBINE_GUNSHIP )
+	{
+		//TERO: if our enemy has changed, change this shit
+		ClearCondition(COND_CIT_CAN_HAVE_MOLOTOV);
+		return;
+	}
+
+	if (m_flNextMolotovCocktail > gpGlobals->curtime)
+	{
+		return;
+	}
+
+	m_flNextMolotovCocktail = gpGlobals->curtime + 1.0f;
+
+	if (GetEnemy()->GetWaterLevel() != WL_NotInWater)
+	{
+		//TERO: we don't clear it here so that if player runs water after we have already decided to throw one it wont be cancelled
+		DevMsg("enemy in water\n");
+		return;
+	}
+
+	ClearCondition(COND_CIT_CAN_HAVE_MOLOTOV);
+
+	if (m_iNumberMolotovCocktails == 0)
+	{
+		return;
+	}
+
+	Vector vecTarget = GetEnemies()->LastKnownPosition( GetEnemy() );
+
+	float flDist = (vecTarget - GetAbsOrigin()).Length();
+
+	if ( flDist < 128) 
+	{
+		//DevMsg("too close");
+		return;
+	}
+	else if (flDist > 1024) 
+	{
+		//DevMsg("too far\n");
+		return;
+	}
+	else if ( m_flGroundSpeed != 0 )
+	{
+		//DevMsg("moving\n");
+		return;
+	} 
+	else if (GetEnemy())
+	{
+		Vector vecToss = vec3_origin;
+		Vector vecMins = -Vector(4,4,4);
+		Vector vecMaxs = Vector(4,4,4);
+		if( FInViewCone( vecTarget ) && CBaseEntity::FVisible( vecTarget ) )
+		{
+			//DevMsg("regular toss\n");
+			vecToss = VecCheckThrow( this, EyePosition(), vecTarget, 650, 1.0, &vecMins, &vecMaxs );
+		}
+		else
+		{
+			// Have to try a high toss. Do I have enough room?
+			trace_t tr;
+			AI_TraceLine( EyePosition(), EyePosition() + Vector( 0, 0, 64 ), MASK_SHOT, this, COLLISION_GROUP_NONE, &tr );
+			if( tr.fraction == 1.0 )
+			{
+				//DevMsg("high toss\n");
+				vecToss = VecCheckToss( this, EyePosition(), vecTarget, -1, 1.0, true, &vecMins, &vecMaxs );
+			}
+		}
+
+		if ( vecToss != vec3_origin )
+		{
+			m_vecTossVelocity = vecToss;
+			//DevMsg("Can throw\n");
+			SetCondition( COND_CIT_CAN_HAVE_MOLOTOV );
+		}
+	}
+}
+
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+void CNPC_Citizen::GiveWeapon( string_t iszWeaponName )
+{
+	CBaseCombatWeapon *pWeapon = Weapon_Create( STRING(iszWeaponName) );
+	if ( !pWeapon )
+	{
+		Warning( "Couldn't create weapon %s to give NPC %s.\n", STRING(iszWeaponName), STRING(GetEntityName()) );
+		return;
+	}
+
+	// If I have a name, make my weapon match it with "_weapon" appended
+	if ( GetEntityName() != NULL_STRING )
+	{
+		pWeapon->SetName( AllocPooledString(UTIL_VarArgs("%s_weapon", GetEntityName())) );
+	}
+
+	Weapon_Equip( pWeapon );
+
+	// Handle this case
+	OnGivenWeapon( pWeapon );
+
+	// If I have a weapon already, drop it
+	if ( GetActiveWeapon() )
+	{
+		//Weapon_Drop( GetActiveWeapon() );
+		Weapon_Switch(pWeapon);
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -1209,11 +1489,10 @@ int CNPC_Citizen::SelectSchedulePriorityAction()
 int CNPC_Citizen::SelectScheduleHeal()
 {
 	// episodic medics may toss the healthkits rather than poke you with them
-#if HL2_EPISODIC
 
 	if ( CanHeal() )
 	{
-		CBaseEntity *pEntity = PlayerInRange( GetLocalOrigin(), HEAL_TOSS_TARGET_RANGE );
+		/*CBaseEntity *pEntity = PlayerInRange( GetLocalOrigin(), HEAL_TOSS_TARGET_RANGE );
 		if ( pEntity )
 		{
 			if ( USE_EXPERIMENTAL_MEDIC_CODE() && IsMedic() )
@@ -1235,11 +1514,11 @@ int CNPC_Citizen::SelectScheduleHeal()
 				}
 			}
 
-		}
+		}*/
 		
 		if ( m_pSquad )
 		{
-			pEntity = NULL;
+			CBaseEntity *pEntity = NULL;
 			float distClosestSq = HEAL_MOVE_RANGE*HEAL_MOVE_RANGE;
 			float distCurSq;
 			
@@ -1266,65 +1545,11 @@ int CNPC_Citizen::SelectScheduleHeal()
 				return SCHED_CITIZEN_HEAL;
 			}
 		}
-	}
-	else
-	{
-		if ( HasCondition( COND_CIT_PLAYERHEALREQUEST ) )
-			DevMsg( "Would say: sorry, need to recharge\n" );
 	}
 	
 	return SCHED_NONE;
 
-#else
 
-	if ( CanHeal() )
-	{
-		CBaseEntity *pEntity = PlayerInRange( GetLocalOrigin(), HEAL_MOVE_RANGE );
-		if ( pEntity && ShouldHealTarget( pEntity, HasCondition( COND_CIT_PLAYERHEALREQUEST ) ) )
-		{
-			SetTarget( pEntity );
-			return SCHED_CITIZEN_HEAL;
-		}
-
-		if ( m_pSquad )
-		{
-			pEntity = NULL;
-			float distClosestSq = HEAL_MOVE_RANGE*HEAL_MOVE_RANGE;
-			float distCurSq;
-
-			AISquadIter_t iter;
-			CAI_BaseNPC *pSquadmate = m_pSquad->GetFirstMember( &iter );
-			while ( pSquadmate )
-			{
-				if ( pSquadmate != this )
-				{
-					distCurSq = ( GetAbsOrigin() - pSquadmate->GetAbsOrigin() ).LengthSqr();
-					if ( distCurSq < distClosestSq && ShouldHealTarget( pSquadmate ) )
-					{
-						distClosestSq = distCurSq;
-						pEntity = pSquadmate;
-					}
-				}
-
-				pSquadmate = m_pSquad->GetNextMember( &iter );
-			}
-
-			if ( pEntity )
-			{
-				SetTarget( pEntity );
-				return SCHED_CITIZEN_HEAL;
-			}
-		}
-	}
-	else
-	{
-		if ( HasCondition( COND_CIT_PLAYERHEALREQUEST ) )
-			DevMsg( "Would say: sorry, need to recharge\n" );
-	}
-
-	return SCHED_NONE;
-
-#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -1419,6 +1644,13 @@ int CNPC_Citizen::SelectScheduleCombat()
 	int schedule = SelectScheduleManhackCombat();
 	if ( schedule != SCHED_NONE )
 		return schedule;
+
+	if ( HasCondition(COND_CIT_CAN_HAVE_MOLOTOV) )
+	{
+		DevMsg("Selecting throwing schedule\n");
+		ClearCondition(COND_CIT_CAN_HAVE_MOLOTOV);
+		return SCHED_CITIZEN_THROW_MOLOTOV; //SCHED_RANGE_ATTACK2;
+	}
 		
 	return BaseClass::SelectScheduleCombat();
 }
@@ -1439,46 +1671,27 @@ bool CNPC_Citizen::ShouldDeferToFollowBehavior()
 //-----------------------------------------------------------------------------
 int CNPC_Citizen::TranslateSchedule( int scheduleType ) 
 {
-	CBasePlayer *pLocalPlayer = AI_GetSinglePlayer();
-
 	switch( scheduleType )
 	{
-	case SCHED_IDLE_STAND:
-	case SCHED_ALERT_STAND:
-		if( m_NPCState != NPC_STATE_COMBAT && pLocalPlayer && !pLocalPlayer->IsAlive() && CanJoinPlayerSquad() )
-		{
-			// Player is dead! 
-			float flDist;
-			flDist = ( pLocalPlayer->GetAbsOrigin() - GetAbsOrigin() ).Length();
-
-			if( flDist < 50 * 12 )
-			{
-				AddSpawnFlags( SF_CITIZEN_NOT_COMMANDABLE );
-				return SCHED_CITIZEN_MOURN_PLAYER;
-			}
-		}
-		break;
-
-	case SCHED_ESTABLISH_LINE_OF_FIRE:
-	case SCHED_MOVE_TO_WEAPON_RANGE:
-		if( !IsMortar( GetEnemy() ) && HaveCommandGoal() )
-		{
-			if ( GetActiveWeapon() && ( GetActiveWeapon()->CapabilitiesGet() & bits_CAP_WEAPON_RANGE_ATTACK1 ) && random->RandomInt( 0, 1 ) && HasCondition(COND_SEE_ENEMY) && !HasCondition ( COND_NO_PRIMARY_AMMO ) )
-				return TranslateSchedule( SCHED_RANGE_ATTACK1 );
-
-			return SCHED_STANDOFF;
-		}
-		break;
-
 	case SCHED_CHASE_ENEMY:
-		if( !IsMortar( GetEnemy() ) && HaveCommandGoal() )
+	case SCHED_TAKE_COVER_FROM_ENEMY:
+	case SCHED_BACK_AWAY_FROM_ENEMY:
+	case SCHED_MOVE_TO_WEAPON_RANGE:
 		{
-			return SCHED_STANDOFF;
+			if (m_bParentedToTruck)
+			{
+				return SCHED_COMBAT_FACE;
+			}
+			else
+				BaseClass::TranslateSchedule( scheduleType );
 		}
 		break;
-
+	case SCHED_RANGE_ATTACK2:
+		{
+			return SCHED_CITIZEN_THROW_MOLOTOV;
+		}
+		break;
 	case SCHED_RANGE_ATTACK1:
-		// If we have an RPG, we use a custom schedule for it
 		if ( !IsMortar( GetEnemy() ) && GetActiveWeapon() && FClassnameIs( GetActiveWeapon(), "weapon_rpg" ) )
 		{
 			if ( GetEnemy() && GetEnemy()->ClassMatches( "npc_strider" ) )
@@ -1494,17 +1707,7 @@ int CNPC_Citizen::TranslateSchedule( int scheduleType )
 			}
 			else
 			{
-				CBasePlayer *pPlayer = AI_GetSinglePlayer();
-				if ( pPlayer && GetEnemy() && ( ( GetEnemy()->GetAbsOrigin() - 
-					pPlayer->GetAbsOrigin() ).LengthSqr() < RPG_SAFE_DISTANCE * RPG_SAFE_DISTANCE ) )
-				{
-					// Don't fire our RPG at an enemy too close to the player
-					return SCHED_STANDOFF;
-				}
-				else
-				{
-					return SCHED_CITIZEN_RANGE_ATTACK1_RPG;
-				}
+				return SCHED_CITIZEN_RANGE_ATTACK1_RPG;
 			}
 		}
 		break;
@@ -1548,8 +1751,28 @@ void CNPC_Citizen::StartTask( const Task_t *pTask )
 {
 	switch( pTask->iTask )
 	{
+	case TASK_CIT_FACE_THROW_TARGET:
+		break;
+
 	case TASK_CIT_PLAY_INSPECT_SEQUENCE:
 		SetIdealActivity( (Activity) m_nInspectActivity );
+		break;
+
+	case TASK_ANNOUNCE_ATTACK:
+		{
+			if ( (int)pTask->flTaskData == 2 )
+			{
+				if ( SpeakIfAllowed( TLK_ATTACKING ) )
+				{
+					m_AnnounceAttackTimer.Set( 10, 30 );
+				}
+
+				TaskComplete();
+			}
+
+			BaseClass::StartTask( pTask );
+			break;
+		}
 		break;
 
 	case TASK_CIT_SIT_ON_TRAIN:
@@ -1593,18 +1816,9 @@ void CNPC_Citizen::StartTask( const Task_t *pTask )
 
 			Speak( TLK_HEAL );
 		}
-		else if ( IsAmmoResupplier() )
-		{
-			Speak( TLK_GIVEAMMO );
-		}
 		SetIdealActivity( (Activity)ACT_CIT_HEAL );
 		break;
 	
-	case TASK_CIT_RPG_AUGER:
-		m_bRPGAvoidPlayer = false;
-		SetWait( 15.0 ); // maximum time auger before giving up
-		break;
-
 	case TASK_CIT_SPEAK_MOURNING:
 		if ( !IsSpeaking() && CanSpeakAfterMyself() )
 		{
@@ -1617,6 +1831,42 @@ void CNPC_Citizen::StartTask( const Task_t *pTask )
 		TaskComplete();
 		break;
 
+	case TASK_CIT_RPG_AUGER:
+		SetWait( 15.0 ); // maximum time auger before giving up
+		break;
+
+	case TASK_FACE_IDEAL:
+	case TASK_FACE_ENEMY:
+		{
+			if (m_bParentedToTruck)
+			{
+				//CBasePlayer *pPlayer = UTIL_PlayerByIndex(1);
+				Vector flEnemyLKP = GetEnemyLKP();
+
+				/*if (GetEnemy())
+				{
+					if (GetEnemy()->IsPlayer() && pPlayer && pPlayer->GetVehicle() && pPlayer->GetVehicle()->GetVehicleEnt())
+					{
+						flEnemyLKP = pPlayer->GetVehicle()->GetVehicleEnt()->GetAbsOrigin();
+					}
+					else 
+					{
+						flEnemyLKP = GetEnemy()->GetAbsOrigin();
+					}
+				}*/
+
+				float base = UTIL_VecToYaw ( GetLocalOrigin() - flEnemyLKP);
+
+				GetMotor()->SetIdealYaw( base );
+				//GetMotor()->SnapYaw();*/
+			}
+			else
+			{
+				BaseClass::StartTask( pTask );
+			}
+		}
+		break;
+
 	default:
 		BaseClass::StartTask( pTask );
 		break;
@@ -1627,8 +1877,41 @@ void CNPC_Citizen::StartTask( const Task_t *pTask )
 //-----------------------------------------------------------------------------
 void CNPC_Citizen::RunTask( const Task_t *pTask )
 {
+	/*if (GetCurSchedule())
+		DevMsg("npc_citizen: running schedule with name: %s, with task id %d\n", GetCurSchedule()->GetName(), pTask->iTask );
+	else
+		DevMsg("npc_citizen: running schedule with task: %d\n", pTask->iTask );*/
+
+
 	switch( pTask->iTask )
 	{
+		case TASK_FACE_IDEAL:
+		case TASK_FACE_ENEMY:
+		{
+			if (m_bParentedToTruck)
+			{
+				//CBasePlayer *pPlayer = UTIL_PlayerByIndex(1);
+				/*Vector flEnemyLKP = GetEnemyLKP();
+
+				float base = UTIL_VecToYaw ( GetLocalOrigin() - flEnemyLKP);
+
+				GetMotor()->SetIdealYaw( base );
+				GetMotor()->UpdateYaw();
+				
+				if ( FacingIdeal() )
+				{
+					TaskComplete();
+				}*/
+
+				TaskComplete();
+
+			}
+			else
+			{
+				BaseClass::RunTask( pTask );
+			}
+			break;
+		}
 		case TASK_WAIT_FOR_MOVEMENT:
 		{
 			if ( IsManhackMeleeCombatant() )
@@ -1703,7 +1986,17 @@ void CNPC_Citizen::RunTask( const Task_t *pTask )
 				GetMotor()->SetIdealYawToTargetAndUpdate( GetTarget()->GetAbsOrigin() );
 			}
 			break;
+		case TASK_CIT_FACE_THROW_TARGET:
+		{
+			// project a point along the toss vector and turn to face that point.
+			GetMotor()->SetIdealYawToTargetAndUpdate( GetLocalOrigin() + m_vecTossVelocity * 64, AI_KEEP_YAW_SPEED );
 
+			if ( FacingIdeal() )
+			{
+				TaskComplete( true );
+			}
+			break;
+		}
 
 #if HL2_EPISODIC
 		case TASK_CIT_HEAL_TOSS:
@@ -1744,8 +2037,7 @@ void CNPC_Citizen::RunTask( const Task_t *pTask )
 
 				Vector vecLaserPos = pRPG->GetNPCLaserPosition();
 
-				if ( !m_bRPGAvoidPlayer )
-				{
+
 					// Abort if we've lost our enemy
 					if ( !GetEnemy() )
 					{
@@ -1767,28 +2059,13 @@ void CNPC_Citizen::RunTask( const Task_t *pTask )
 					}
 
 					Vector vecEnemyPos = GetEnemy()->BodyTarget(GetAbsOrigin(), false);
-					CBasePlayer *pPlayer = AI_GetSinglePlayer();
-					if ( pPlayer && ( ( vecEnemyPos - pPlayer->GetAbsOrigin() ).LengthSqr() < RPG_SAFE_DISTANCE * RPG_SAFE_DISTANCE ) )
-					{
-						m_bRPGAvoidPlayer = true;
-						Speak( TLK_WATCHOUT );
-					}
-					else
-					{
-						// Pull the laserdot towards the target
-						Vector vecToTarget = (vecEnemyPos - vecLaserPos);
-						float distToMove = VectorNormalize( vecToTarget );
-						if ( distToMove > 90 )
-							distToMove = 90;
-						vecLaserPos += vecToTarget * distToMove;
-					}
-				}
-
-				if ( m_bRPGAvoidPlayer )
-				{
-					// Pull the laserdot up
-					vecLaserPos.z += 90;
-				}
+				
+					// Pull the laserdot towards the target
+					Vector vecToTarget = (vecEnemyPos - vecLaserPos);
+					float distToMove = VectorNormalize( vecToTarget );
+					if ( distToMove > 90 )
+						distToMove = 90;
+					vecLaserPos += vecToTarget * distToMove;
 
 				if ( IsWaitFinished() )
 				{
@@ -1820,7 +2097,7 @@ void CNPC_Citizen::TaskFail( AI_TaskFailureCode_t code )
 	// If our heal task has failed, push out the heal time
 	if ( IsCurSchedule( SCHED_CITIZEN_HEAL ) )
 	{
-		m_flPlayerHealTime 	= gpGlobals->curtime + sk_citizen_heal_ally_delay.GetFloat();
+		m_flAllyHealTime 	= gpGlobals->curtime + sk_citizen_heal_ally_delay.GetFloat();
 	}
 
 	if( code == FAIL_NO_ROUTE_BLOCKED && m_bNotifyNavFailBlocked )
@@ -1836,10 +2113,29 @@ void CNPC_Citizen::TaskFail( AI_TaskFailureCode_t code )
 //-----------------------------------------------------------------------------
 Activity CNPC_Citizen::NPC_TranslateActivity( Activity activity )
 {
+	if ( activity == ACT_RANGE_ATTACK_THROW )
+	{
+		//TERO: lets not get interrupted by flinch if we are throwing
+		m_flNextFlinchTime = gpGlobals->curtime + random->RandomFloat( 3, 5 );
+	}
+
 	if ( activity == ACT_MELEE_ATTACK1 )
 	{
 		return ACT_MELEE_ATTACK_SWING;
 	}
+
+	if ( activity == ACT_CROUCHIDLE_STIMULATED ||
+		 activity == ACT_CROUCHIDLE_AIM_STIMULATED || 
+		 activity == ACT_CROUCHIDLE_AGITATED )
+	{
+		return ACT_COVER_LOW; 
+	}
+
+	/*if (m_bIsInVan)
+	{
+		DevMsg("Activity %d\n", activity );
+
+	}*/
 
 	// !!!HACK - Citizens don't have the required animations for shotguns, 
 	// so trick them into using the rifle counterparts for now (sjb)
@@ -1868,7 +2164,7 @@ void CNPC_Citizen::HandleAnimEvent( animevent_t *pEvent )
 			// If I have a name, make my weapon match it with "_weapon" appended
 			if ( GetEntityName() != NULL_STRING )
 			{
-				pWeapon->SetName( AllocPooledString(UTIL_VarArgs("%s_weapon", STRING(GetEntityName()) )) );
+				pWeapon->SetName( AllocPooledString(UTIL_VarArgs("%s_weapon", GetEntityName())) );
 			}
 			Weapon_Equip( pWeapon );
 		}
@@ -1884,7 +2180,7 @@ void CNPC_Citizen::HandleAnimEvent( animevent_t *pEvent )
 			Assert(pTarget);
 			if ( pTarget )
 			{
-				m_flPlayerHealTime 	= gpGlobals->curtime + sk_citizen_heal_toss_player_delay.GetFloat();;
+				m_flAllyHealTime 	= gpGlobals->curtime + sk_citizen_heal_toss_ally_delay.GetFloat();;
 				TossHealthKit( pTarget, Vector(48.0f, 0.0f, 0.0f)  );
 			}
 		}
@@ -1909,6 +2205,54 @@ void CNPC_Citizen::HandleAnimEvent( animevent_t *pEvent )
 	case NPC_EVENT_RIGHTFOOT:
 		{
 			EmitSound( "NPC_Citizen.FootstepRight", pEvent->eventtime );
+		}
+		break;
+	case EVENT_WEAPON_THROW:
+		{
+			Vector vecSpin;
+			vecSpin.x = random->RandomFloat( -1000.0, 1000.0 );
+			vecSpin.y = random->RandomFloat( -1000.0, 1000.0 );
+			vecSpin.z = random->RandomFloat( -1000.0, 1000.0 ); 
+
+			Vector vecStart;
+			GetAttachment( "righthand", vecStart );
+
+			if( m_NPCState == NPC_STATE_SCRIPT )
+			{
+				// Use a fixed velocity for grenades thrown in scripted state.
+				// Grenades thrown from a script do not count against grenades remaining for the AI to use.
+				Vector forward, up, vecThrow;
+
+				GetVectors( &forward, NULL, &up );
+				vecThrow = forward * 750 + up * 175;
+
+				CGrenade_Molotov *pMolotov = (CGrenade_Molotov*)Create( "grenade_molotov", vecStart, vec3_angle, this );
+				pMolotov->SetVelocity( vecThrow, vecSpin );
+				// Tumble through the air
+				//pMolotov->SetLocalAngularVelocity( angVel );
+				pMolotov->SetThrower( this );
+				pMolotov->SetOwnerEntity( this );
+			}
+			else
+			{
+				// Use the Velocity that AI gave us.
+				CGrenade_Molotov *pMolotov = (CGrenade_Molotov*)Create( "grenade_molotov", vecStart, vec3_angle, this );
+				pMolotov->SetVelocity( m_vecTossVelocity, vecSpin );
+				// Tumble through the air	
+				//pMolotov->SetLocalAngularVelocity( angVel );
+				pMolotov->SetThrower( this );
+				pMolotov->SetOwnerEntity( this );
+				
+				// wait six seconds before even looking again to see if a grenade can be thrown.
+				if (m_iNumberMolotovCocktails > 0)
+				{
+					m_iNumberMolotovCocktails--;
+					DevMsg("npc_citizen %s molotov cocktails left %d\n", GetDebugName(), m_iNumberMolotovCocktails);
+				}
+			
+				ClearCondition(COND_CIT_CAN_HAVE_MOLOTOV);
+				m_flNextMolotovCocktail = gpGlobals->curtime + 15.0f;
+			}
 		}
 		break;
 
@@ -2184,7 +2528,7 @@ bool CNPC_Citizen::ShouldLookForBetterWeapon()
 			return false;
 		}
 
-#ifdef DBGFLAG_ASSERT
+#ifdef DEBUG
 		// Cached off to make sure you change this if you ask the code to defer.
 		float flOldWeaponSearchTime = m_flNextWeaponSearchTime;
 #endif
@@ -2267,1035 +2611,13 @@ int CNPC_Citizen::OnTakeDamage_Alive( const CTakeDamageInfo &info )
 
 	CTakeDamageInfo newInfo = info;
 
-	if( IsInSquad() && (info.GetDamageType() & DMG_BLAST) && info.GetInflictor() )
-	{
-		if( npc_citizen_explosive_resist.GetBool() )
-		{
-			// Blast damage. If this kills a squad member, give the 
-			// remaining citizens a resistance bonus to this inflictor
-			// to try to avoid having the entire squad wiped out by a
-			// single explosion.
-			if( m_pSquad->IsSquadInflictor( info.GetInflictor() ) )
-			{
-				newInfo.ScaleDamage( 0.5 );
-			}
-			else
-			{
-				// If this blast is going to kill me, designate the inflictor
-				// so that the rest of the squad can enjoy a damage resist.
-				if( info.GetDamage() >= GetHealth() )
-				{
-					m_pSquad->SetSquadInflictor( info.GetInflictor() );
-				}
-			}
-		}
-	}
-
 	return BaseClass::OnTakeDamage_Alive( newInfo );
 }
 
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::IsCommandable() 
-{
-	return ( !HasSpawnFlags(SF_CITIZEN_NOT_COMMANDABLE) && IsInPlayerSquad() );
-}
 
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::IsPlayerAlly( CBasePlayer *pPlayer )											
-{ 
-	if ( Classify() == CLASS_CITIZEN_PASSIVE && GlobalEntity_GetState("gordon_precriminal") == GLOBAL_ON )
-	{
-		// Robin: Citizens use friendly speech semaphore in trainstation
-		return true;
-	}
 
-	return BaseClass::IsPlayerAlly( pPlayer );
-}
 
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::CanJoinPlayerSquad()
-{
-	if ( !AI_IsSinglePlayer() )
-		return false;
 
-	if ( m_NPCState == NPC_STATE_SCRIPT || m_NPCState == NPC_STATE_PRONE )
-		return false;
-
-	if ( HasSpawnFlags(SF_CITIZEN_NOT_COMMANDABLE) )
-		return false;
-
-	if ( IsInAScript() )
-		return false;
-
-	// Don't bother people who don't want to be bothered
-	if ( !CanBeUsedAsAFriend() )
-		return false;
-
-	if ( IRelationType( UTIL_GetLocalPlayer() ) != D_LI )
-		return false;
-
-	return true;
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::WasInPlayerSquad()
-{
-	return m_bWasInPlayerSquad;
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::HaveCommandGoal() const			
-{	
-	if (GetCommandGoal() != vec3_invalid)
-		return true;
-	return false;
-}
-
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::IsCommandMoving()
-{
-	if ( AI_IsSinglePlayer() && IsInPlayerSquad() )
-	{
-		if ( m_FollowBehavior.GetFollowTarget() == UTIL_GetLocalPlayer() ||
-			 IsFollowingCommandPoint() )
-		{
-			return ( m_FollowBehavior.IsMovingToFollowTarget() );
-		}
-	}
-	return false;
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::ShouldAutoSummon()
-{
-	if ( !AI_IsSinglePlayer() || !IsFollowingCommandPoint() || !IsInPlayerSquad() )
-		return false;
-
-	CHL2_Player *pPlayer = (CHL2_Player *)UTIL_GetLocalPlayer();
-	
-	float distMovedSq = ( pPlayer->GetAbsOrigin() - m_vAutoSummonAnchor ).LengthSqr();
-	float moveTolerance = player_squad_autosummon_move_tolerance.GetFloat() * 12;
-	const Vector &vCommandGoal = GetCommandGoal();
-
-	if ( distMovedSq < Square(moveTolerance * 10) && (GetAbsOrigin() - vCommandGoal).LengthSqr() > Square(10*12) && IsCommandMoving() )
-	{
-		m_AutoSummonTimer.Set( player_squad_autosummon_time.GetFloat() );
-		if ( player_squad_autosummon_debug.GetBool() )
-			DevMsg( "Waiting for arrival before initiating autosummon logic\n");
-	}
-	else if ( m_AutoSummonTimer.Expired() )
-	{
-		bool bSetFollow = false;
-		bool bTestEnemies = true;
-		
-		// Auto summon unconditionally if a significant amount of time has passed
-		if ( gpGlobals->curtime - m_AutoSummonTimer.GetNext() > player_squad_autosummon_time.GetFloat() * 2 )
-		{
-			bSetFollow = true;
-			if ( player_squad_autosummon_debug.GetBool() )
-				DevMsg( "Auto summoning squad: long time (%f)\n", ( gpGlobals->curtime - m_AutoSummonTimer.GetNext() ) + player_squad_autosummon_time.GetFloat() );
-		}
-			
-		// Player must move for autosummon
-		if ( distMovedSq > Square(12) )
-		{
-			bool bCommandPointIsVisible = pPlayer->FVisible( vCommandGoal + pPlayer->GetViewOffset() );
-
-			// Auto summon if the player is close by the command point
-			if ( !bSetFollow && bCommandPointIsVisible && distMovedSq > Square(24) )
-			{
-				float closenessTolerance = player_squad_autosummon_player_tolerance.GetFloat() * 12;
-				if ( (pPlayer->GetAbsOrigin() - vCommandGoal).LengthSqr() < Square( closenessTolerance ) &&
-					 ((m_vAutoSummonAnchor - vCommandGoal).LengthSqr() > Square( closenessTolerance )) )
-				{
-					bSetFollow = true;
-					if ( player_squad_autosummon_debug.GetBool() )
-						DevMsg( "Auto summoning squad: player close to command point (%f)\n", (GetAbsOrigin() - vCommandGoal).Length() );
-				}
-			}
-			
-			// Auto summon if moved a moderate distance and can't see command point, or moved a great distance
-			if ( !bSetFollow )
-			{
-				if ( distMovedSq > Square( moveTolerance * 2 ) )
-				{
-					bSetFollow = true;
-					bTestEnemies = ( distMovedSq < Square( moveTolerance * 10 ) );
-					if ( player_squad_autosummon_debug.GetBool() )
-						DevMsg( "Auto summoning squad: player very far from anchor (%f)\n", sqrt(distMovedSq) );
-				}
-				else if ( distMovedSq > Square( moveTolerance ) )
-				{
-					if ( !bCommandPointIsVisible )
-					{
-						bSetFollow = true;
-						if ( player_squad_autosummon_debug.GetBool() )
-							DevMsg( "Auto summoning squad: player far from anchor (%f)\n", sqrt(distMovedSq) );
-					}
-				}
-			}
-		}
-		
-		// Auto summon only if there are no readily apparent enemies
-		if ( bSetFollow && bTestEnemies )
-		{
-			for ( int i = 0; i < g_AI_Manager.NumAIs(); i++ )
-			{
-				CAI_BaseNPC *pNpc = g_AI_Manager.AccessAIs()[i];
-				float timeSinceCombatTolerance = player_squad_autosummon_time_after_combat.GetFloat();
-				
-				if ( pNpc->IsInPlayerSquad() )
-				{
-					if ( gpGlobals->curtime - pNpc->GetLastAttackTime() > timeSinceCombatTolerance || 
-						 gpGlobals->curtime - pNpc->GetLastDamageTime() > timeSinceCombatTolerance )
-						continue;
-				}
-				else if ( pNpc->GetEnemy() )
-				{
-					CBaseEntity *pNpcEnemy = pNpc->GetEnemy();
-					if ( !IsSniper( pNpc ) && ( gpGlobals->curtime - pNpc->GetEnemyLastTimeSeen() ) > timeSinceCombatTolerance )
-						continue;
-
-					if ( pNpcEnemy == pPlayer )
-					{
-						if ( pNpc->CanBeAnEnemyOf( pPlayer ) )
-						{
-							bSetFollow = false;
-							break;
-						}
-					}
-					else if ( pNpcEnemy->IsNPC() && ( pNpcEnemy->MyNPCPointer()->GetSquad() == GetSquad() || pNpcEnemy->Classify() == CLASS_PLAYER_ALLY_VITAL ) )
-					{
-						if ( pNpc->CanBeAnEnemyOf( this ) )
-						{
-							bSetFollow = false;
-							break;
-						}
-					}
-				}
-			}
-			if ( !bSetFollow && player_squad_autosummon_debug.GetBool() )
-				DevMsg( "Auto summon REVOKED: Combat recent \n");
-		}
-		
-		return bSetFollow;
-	}
-	return false;
-}
-
-//-----------------------------------------------------------------------------
-// Is this entity something that the citizen should interact with (return true)
-// or something that he should try to get close to (return false)
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::IsValidCommandTarget( CBaseEntity *pTarget )
-{
-	return false;
-}
-
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::SpeakCommandResponse( AIConcept_t concept, const char *modifiers )
-{
-	return SpeakIfAllowed( concept, 
-						   CFmtStr( "numselected:%d,"
-									"useradio:%d%s",
-									( GetSquad() ) ? GetSquad()->NumMembers() : 1,
-									ShouldSpeakRadio( AI_GetSinglePlayer() ),
-									( modifiers ) ? CFmtStr(",%s", modifiers).operator const char *() : "" ) );
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: return TRUE if the commander mode should try to give this order
-//			to more people. return FALSE otherwise. For instance, we don't
-//			try to send all 3 selectedcitizens to pick up the same gun.
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::TargetOrder( CBaseEntity *pTarget, CAI_BaseNPC **Allies, int numAllies )
-{
-	if ( pTarget->IsPlayer() )
-	{
-		// I'm the target! Toggle follow!
-		if( m_FollowBehavior.GetFollowTarget() != pTarget )
-		{
-			ClearFollowTarget();
-			SetCommandGoal( vec3_invalid );
-
-			// Turn follow on!
-			m_AssaultBehavior.Disable();
-			m_FollowBehavior.SetFollowTarget( pTarget );
-			m_FollowBehavior.SetParameters( AIF_SIMPLE );			
-			SpeakCommandResponse( TLK_STARTFOLLOW );
-
-			m_OnFollowOrder.FireOutput( this, this );
-		}
-		else if ( m_FollowBehavior.GetFollowTarget() == pTarget )
-		{
-			// Stop following.
-			m_FollowBehavior.SetFollowTarget( NULL );
-			SpeakCommandResponse( TLK_STOPFOLLOW );
-		}
-	}
-
-	return true;
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: Turn off following before processing a move order.
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::MoveOrder( const Vector &vecDest, CAI_BaseNPC **Allies, int numAllies )
-{
-	if ( !AI_IsSinglePlayer() )
-		return;
-
-	if( hl2_episodic.GetBool() && m_iszDenyCommandConcept != NULL_STRING )
-	{
-		SpeakCommandResponse( STRING(m_iszDenyCommandConcept) );
-		return;
-	}
-
-	CHL2_Player *pPlayer = (CHL2_Player *)UTIL_GetLocalPlayer();
-
-	m_AutoSummonTimer.Set( player_squad_autosummon_time.GetFloat() );
-	m_vAutoSummonAnchor = pPlayer->GetAbsOrigin();
-
-	if( m_StandoffBehavior.IsRunning() )
-	{
-		m_StandoffBehavior.SetStandoffGoalPosition( vecDest );
-	}
-
-	// If in assault, cancel and move.
-	if( m_AssaultBehavior.HasHitRallyPoint() && !m_AssaultBehavior.HasHitAssaultPoint() )
-	{
-		m_AssaultBehavior.Disable();
-		ClearSchedule( "Moving from rally point to assault point" );
-	}
-
-	bool spoke = false;
-
-	CAI_BaseNPC *pClosest = NULL;
-	float closestDistSq = FLT_MAX;
-
-	for( int i = 0 ; i < numAllies ; i++ )
-	{
-		if( Allies[i]->IsInPlayerSquad() )
-		{
-			Assert( Allies[i]->IsCommandable() );
-			float distSq = ( pPlayer->GetAbsOrigin() - Allies[i]->GetAbsOrigin() ).LengthSqr();
-			if( distSq < closestDistSq )
-			{
-				pClosest = Allies[i];
-				closestDistSq = distSq;
-			}
-		}
-	}
-
-	if( m_FollowBehavior.GetFollowTarget() && !IsFollowingCommandPoint() )
-	{
-		ClearFollowTarget();
-#if 0
-		if ( ( pPlayer->GetAbsOrigin() - GetAbsOrigin() ).LengthSqr() < Square( 180 ) &&
-			 ( ( vecDest - pPlayer->GetAbsOrigin() ).LengthSqr() < Square( 120 ) || 
-			   ( vecDest - GetAbsOrigin() ).LengthSqr() < Square( 120 ) ) )
-		{
-			if ( pClosest == this )
-				SpeakIfAllowed( TLK_STOPFOLLOW );
-			spoke = true;
-		}
-#endif
-	}
-
-	if ( !spoke && pClosest == this )
-	{
-		float destDistToPlayer = ( vecDest - pPlayer->GetAbsOrigin() ).Length();
-		float destDistToClosest = ( vecDest - GetAbsOrigin() ).Length();
-		CFmtStr modifiers( "commandpoint_dist_to_player:%.0f,"
-						   "commandpoint_dist_to_npc:%.0f",
-						   destDistToPlayer,
-						   destDistToClosest );
-
-		SpeakCommandResponse( TLK_COMMANDED, modifiers );
-	}
-
-	m_OnStationOrder.FireOutput( this, this );
-
-	BaseClass::MoveOrder( vecDest, Allies, numAllies );
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::OnMoveOrder()
-{
-	SetReadinessLevel( AIRL_STIMULATED, false, false );
-	BaseClass::OnMoveOrder();
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::CommanderUse( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
-{
-	m_OnPlayerUse.FireOutput( pActivator, pCaller );
-
-	// Under these conditions, citizens will refuse to go with the player.
-	// Robin: NPCs should always respond to +USE even if someone else has the semaphore.
-	if ( !AI_IsSinglePlayer() || !CanJoinPlayerSquad() )
-	{
-		SimpleUse( pActivator, pCaller, useType, value );
-		return;
-	}
-	
-	if ( pActivator == UTIL_GetLocalPlayer() )
-	{
-		// Don't say hi after you've been addressed by the player
-		SetSpokeConcept( TLK_HELLO, NULL );	
-
-		if ( npc_citizen_auto_player_squad_allow_use.GetBool() )
-		{
-			if ( !ShouldAutosquad() )
-				TogglePlayerSquadState();
-			else if ( !IsInPlayerSquad() && npc_citizen_auto_player_squad_allow_use.GetBool() )
-				AddToPlayerSquad();
-		}
-		else if ( GetCurSchedule() && ConditionInterruptsCurSchedule( COND_IDLE_INTERRUPT ) )
-		{
-			if ( SpeakIfAllowed( TLK_QUESTION, NULL, true ) )
-			{
-				if ( random->RandomInt( 1, 4 ) < 4 )
-				{
-					CBaseEntity *pRespondant = FindSpeechTarget( AIST_NPCS );
-					if ( pRespondant )
-					{
-						g_EventQueue.AddEvent( pRespondant, "SpeakIdleResponse", ( GetTimeSpeechComplete() - gpGlobals->curtime ) + .2, this, this );
-					}
-				}
-			}
-		}
-	}
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::ShouldSpeakRadio( CBaseEntity *pListener )
-{
-	if ( !pListener )
-		return false;
-
-	const float		radioRange = 384 * 384;
-	Vector			vecDiff;
-
-	vecDiff = WorldSpaceCenter() - pListener->WorldSpaceCenter();
-
-	if( vecDiff.LengthSqr() > radioRange )
-	{
-		return true;
-	}
-
-	return false;
-}
-
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::OnMoveToCommandGoalFailed()
-{
-	// Clear the goal.
-	SetCommandGoal( vec3_invalid );
-
-	// Announce failure.
-	SpeakCommandResponse( TLK_COMMAND_FAILED );
-}
-
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::AddToPlayerSquad()
-{
-	Assert( !IsInPlayerSquad() );
-
-	AddToSquad( AllocPooledString(PLAYER_SQUADNAME) );
-	m_hSavedFollowGoalEnt = m_FollowBehavior.GetFollowGoal();
-	m_FollowBehavior.SetFollowGoalDirect( NULL );
-
-	FixupPlayerSquad();
-
-	SetCondition( COND_PLAYER_ADDED_TO_SQUAD );
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::RemoveFromPlayerSquad()
-{
-	Assert( IsInPlayerSquad() );
-
-	ClearFollowTarget();
-	ClearCommandGoal();
-	if ( m_iszOriginalSquad != NULL_STRING && strcmp( STRING( m_iszOriginalSquad ), PLAYER_SQUADNAME ) != 0 )
-		AddToSquad( m_iszOriginalSquad );
-	else
-		RemoveFromSquad();
-	
-	if ( m_hSavedFollowGoalEnt )
-		m_FollowBehavior.SetFollowGoal( m_hSavedFollowGoalEnt );
-
-	SetCondition( COND_PLAYER_REMOVED_FROM_SQUAD );
-
-	// Don't evaluate the player squad for 2 seconds. 
-	gm_PlayerSquadEvaluateTimer.Set( 2.0 );
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::TogglePlayerSquadState()
-{
-	if ( !AI_IsSinglePlayer() )
-		return;
-
-	if ( !IsInPlayerSquad() )
-	{
-		AddToPlayerSquad();
-
-		if ( HaveCommandGoal() )
-		{
-			SpeakCommandResponse( TLK_COMMANDED );
-		}
-		else if ( m_FollowBehavior.GetFollowTarget() == UTIL_GetLocalPlayer() )
-		{
-			SpeakCommandResponse( TLK_STARTFOLLOW );
-		}
-	}
-	else
-	{
-		SpeakCommandResponse( TLK_STOPFOLLOW );
-		RemoveFromPlayerSquad();
-	}
-}
-
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-struct SquadCandidate_t
-{
-	CNPC_Citizen *pCitizen;
-	bool		  bIsInSquad;
-	float		  distSq;
-	int			  iSquadIndex;
-};
-
-void CNPC_Citizen::UpdatePlayerSquad()
-{
-	if ( !AI_IsSinglePlayer() )
-		return;
-
-	CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
-	if ( ( pPlayer->GetAbsOrigin().AsVector2D() - GetAbsOrigin().AsVector2D() ).LengthSqr() < Square(20*12) )
-		m_flTimeLastCloseToPlayer = gpGlobals->curtime;
-
-	if ( !gm_PlayerSquadEvaluateTimer.Expired() )
-		return;
-
-	gm_PlayerSquadEvaluateTimer.Set( 2.0 );
-
-	// Remove stragglers
-	CAI_Squad *pPlayerSquad = g_AI_SquadManager.FindSquad( MAKE_STRING( PLAYER_SQUADNAME ) );
-	if ( pPlayerSquad )
-	{
-		CUtlVectorFixed<CNPC_Citizen *, MAX_PLAYER_SQUAD> squadMembersToRemove;
-		AISquadIter_t iter;
-
-		for ( CAI_BaseNPC *pPlayerSquadMember = pPlayerSquad->GetFirstMember(&iter); pPlayerSquadMember; pPlayerSquadMember = pPlayerSquad->GetNextMember(&iter) )
-		{
-			if ( pPlayerSquadMember->GetClassname() != GetClassname() )
-				continue;
-
-			CNPC_Citizen *pCitizen = assert_cast<CNPC_Citizen *>(pPlayerSquadMember);
-
-			if ( !pCitizen->m_bNeverLeavePlayerSquad &&
-				 pCitizen->m_FollowBehavior.GetFollowTarget() &&
-				 !pCitizen->m_FollowBehavior.FollowTargetVisible() && 
-				 pCitizen->m_FollowBehavior.GetNumFailedFollowAttempts() > 0 && 
-				 gpGlobals->curtime - pCitizen->m_FollowBehavior.GetTimeFailFollowStarted() > 20 &&
-				 ( fabsf(( pCitizen->m_FollowBehavior.GetFollowTarget()->GetAbsOrigin().z - pCitizen->GetAbsOrigin().z )) > 196 ||
-				   ( pCitizen->m_FollowBehavior.GetFollowTarget()->GetAbsOrigin().AsVector2D() - pCitizen->GetAbsOrigin().AsVector2D() ).LengthSqr() > Square(50*12) ) )
-			{
-				if ( DebuggingCommanderMode() )
-				{
-					DevMsg( "Player follower is lost (%d, %f, %d)\n", 
-						 pCitizen->m_FollowBehavior.GetNumFailedFollowAttempts(), 
-						 gpGlobals->curtime - pCitizen->m_FollowBehavior.GetTimeFailFollowStarted(), 
-						 (int)((pCitizen->m_FollowBehavior.GetFollowTarget()->GetAbsOrigin().AsVector2D() - pCitizen->GetAbsOrigin().AsVector2D() ).Length()) );
-				}
-
-				squadMembersToRemove.AddToTail( pCitizen );
-			}
-		}
-
-		for ( int i = 0; i < squadMembersToRemove.Count(); i++ )
-		{
-			squadMembersToRemove[i]->RemoveFromPlayerSquad();
-		}
-	}
-
-	// Autosquadding
-	const float JOIN_PLAYER_XY_TOLERANCE_SQ = Square(36*12);
-	const float UNCONDITIONAL_JOIN_PLAYER_XY_TOLERANCE_SQ = Square(12*12);
-	const float UNCONDITIONAL_JOIN_PLAYER_Z_TOLERANCE = 5*12;
-	const float SECOND_TIER_JOIN_DIST_SQ = Square(48*12);
-	if ( pPlayer && ShouldAutosquad() && !(pPlayer->GetFlags() & FL_NOTARGET ) && pPlayer->IsAlive() )
-	{
-		CAI_BaseNPC **ppAIs = g_AI_Manager.AccessAIs();
-		CUtlVector<SquadCandidate_t> candidates;
-		const Vector &vPlayerPos = pPlayer->GetAbsOrigin();
-		bool bFoundNewGuy = false;
-		int i;
-
-		for ( i = 0; i < g_AI_Manager.NumAIs(); i++ )
-		{
-			if ( ppAIs[i]->GetState() == NPC_STATE_DEAD )
-				continue;
-
-			if ( ppAIs[i]->GetClassname() != GetClassname() )
-				continue;
-
-			CNPC_Citizen *pCitizen = assert_cast<CNPC_Citizen *>(ppAIs[i]);
-			int iNew;
-
-			if ( pCitizen->IsInPlayerSquad() )
-			{
-				iNew = candidates.AddToTail();
-				candidates[iNew].pCitizen = pCitizen;
-				candidates[iNew].bIsInSquad = true;
-				candidates[iNew].distSq = 0;
-				candidates[iNew].iSquadIndex = pCitizen->GetSquad()->GetSquadIndex( pCitizen );
-			}
-			else
-			{
-				float distSq = (vPlayerPos.AsVector2D() - pCitizen->GetAbsOrigin().AsVector2D()).LengthSqr(); 
-				if ( distSq > JOIN_PLAYER_XY_TOLERANCE_SQ && 
-					( pCitizen->m_flTimeJoinedPlayerSquad == 0 || gpGlobals->curtime - pCitizen->m_flTimeJoinedPlayerSquad > 60.0 ) && 
-					( pCitizen->m_flTimeLastCloseToPlayer == 0 || gpGlobals->curtime - pCitizen->m_flTimeLastCloseToPlayer > 15.0 ) )
-					continue;
-
-				if ( !pCitizen->CanJoinPlayerSquad() )
-					continue;
-
-				bool bShouldAdd = false;
-
-				if ( pCitizen->HasCondition( COND_SEE_PLAYER ) )
-					bShouldAdd = true;
-				else
-				{
-					bool bPlayerVisible = pCitizen->FVisible( pPlayer );
-					if ( bPlayerVisible )
-					{
-						if ( pCitizen->HasCondition( COND_HEAR_PLAYER ) )
-							bShouldAdd = true;
-						else if ( distSq < UNCONDITIONAL_JOIN_PLAYER_XY_TOLERANCE_SQ && fabsf(vPlayerPos.z - pCitizen->GetAbsOrigin().z) < UNCONDITIONAL_JOIN_PLAYER_Z_TOLERANCE )
-							bShouldAdd = true;
-					}
-				}
-
-				if ( bShouldAdd )
-				{
-					// @TODO (toml 05-25-04): probably everyone in a squad should be a candidate if one of them sees the player
-					AI_Waypoint_t *pPathToPlayer = pCitizen->GetPathfinder()->BuildRoute( pCitizen->GetAbsOrigin(), vPlayerPos, pPlayer, 5*12, NAV_NONE, true );
-					GetPathfinder()->UnlockRouteNodes( pPathToPlayer );
-
-					if ( !pPathToPlayer )
-						continue;
-
-					CAI_Path tempPath;
-					tempPath.SetWaypoints( pPathToPlayer ); // path object will delete waypoints
-
-					iNew = candidates.AddToTail();
-					candidates[iNew].pCitizen = pCitizen;
-					candidates[iNew].bIsInSquad = false;
-					candidates[iNew].distSq = distSq;
-					candidates[iNew].iSquadIndex = -1;
-					
-					bFoundNewGuy = true;
-				}
-			}
-		}
-		
-		if ( bFoundNewGuy )
-		{
-			// Look for second order guys
-			int initialCount = candidates.Count();
-			for ( i = 0; i < initialCount; i++ )
-				candidates[i].pCitizen->AddSpawnFlags( SF_CITIZEN_NOT_COMMANDABLE ); // Prevents double-add
-			for ( i = 0; i < initialCount; i++ )
-			{
-				if ( candidates[i].iSquadIndex == -1 )
-				{
-					for ( int j = 0; j < g_AI_Manager.NumAIs(); j++ )
-					{
-						if ( ppAIs[j]->GetState() == NPC_STATE_DEAD )
-							continue;
-
-						if ( ppAIs[j]->GetClassname() != GetClassname() )
-							continue;
-
-						if ( ppAIs[j]->HasSpawnFlags( SF_CITIZEN_NOT_COMMANDABLE ) )
-							continue; 
-
-						CNPC_Citizen *pCitizen = assert_cast<CNPC_Citizen *>(ppAIs[j]);
-
-						float distSq = (vPlayerPos - pCitizen->GetAbsOrigin()).Length2DSqr(); 
-						if ( distSq > JOIN_PLAYER_XY_TOLERANCE_SQ )
-							continue;
-
-						distSq = (candidates[i].pCitizen->GetAbsOrigin() - pCitizen->GetAbsOrigin()).Length2DSqr(); 
-						if ( distSq > SECOND_TIER_JOIN_DIST_SQ )
-							continue;
-
-						if ( !pCitizen->CanJoinPlayerSquad() )
-							continue;
-
-						if ( !pCitizen->FVisible( pPlayer ) )
-							continue;
-
-						int iNew = candidates.AddToTail();
-						candidates[iNew].pCitizen = pCitizen;
-						candidates[iNew].bIsInSquad = false;
-						candidates[iNew].distSq = distSq;
-						candidates[iNew].iSquadIndex = -1;
-						pCitizen->AddSpawnFlags( SF_CITIZEN_NOT_COMMANDABLE ); // Prevents double-add
-					}
-				}
-			}
-			for ( i = 0; i < candidates.Count(); i++ )
-				candidates[i].pCitizen->RemoveSpawnFlags( SF_CITIZEN_NOT_COMMANDABLE );
-
-			if ( candidates.Count() > MAX_PLAYER_SQUAD )
-			{
-				candidates.Sort( PlayerSquadCandidateSortFunc );
-
-				for ( i = MAX_PLAYER_SQUAD; i < candidates.Count(); i++ )
-				{
-					if ( candidates[i].pCitizen->IsInPlayerSquad() )
-					{
-						candidates[i].pCitizen->RemoveFromPlayerSquad();
-					}
-				}
-			}
-
-			if ( candidates.Count() )
-			{
-				CNPC_Citizen *pClosest = NULL;
-				float closestDistSq = FLT_MAX;
-				int nJoined = 0;
-
-				for ( i = 0; i < candidates.Count() && i < MAX_PLAYER_SQUAD; i++ )
-				{
-					if ( !candidates[i].pCitizen->IsInPlayerSquad() )
-					{
-						candidates[i].pCitizen->AddToPlayerSquad();
-						nJoined++;
-
-						if ( candidates[i].distSq < closestDistSq )
-						{
-							pClosest = candidates[i].pCitizen;
-							closestDistSq = candidates[i].distSq;
-						}
-					}
-				}
-
-				if ( pClosest )
-				{
-					if ( !pClosest->SpokeConcept( TLK_JOINPLAYER ) )
-					{
-						pClosest->SpeakCommandResponse( TLK_JOINPLAYER, CFmtStr( "numjoining:%d", nJoined ) );
-					}
-					else
-					{
-						pClosest->SpeakCommandResponse( TLK_STARTFOLLOW );
-					}
-
-					for ( i = 0; i < candidates.Count() && i < MAX_PLAYER_SQUAD; i++ )
-					{
-						candidates[i].pCitizen->SetSpokeConcept( TLK_JOINPLAYER, NULL ); 
-					}
-				}
-			}
-		}
-	}
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-int CNPC_Citizen::PlayerSquadCandidateSortFunc( const SquadCandidate_t *pLeft, const SquadCandidate_t *pRight )
-{
-	// "Bigger" means less approprate 
-	CNPC_Citizen *pLeftCitizen = pLeft->pCitizen;
-	CNPC_Citizen *pRightCitizen = pRight->pCitizen;
-
-	// Medics are better than anyone
-	if ( pLeftCitizen->IsMedic() && !pRightCitizen->IsMedic() )
-		return -1;
-
-	if ( !pLeftCitizen->IsMedic() && pRightCitizen->IsMedic() )
-		return 1;
-
-	CBaseCombatWeapon *pLeftWeapon = pLeftCitizen->GetActiveWeapon();
-	CBaseCombatWeapon *pRightWeapon = pRightCitizen->GetActiveWeapon();
-	
-	// People with weapons are better than those without
-	if ( pLeftWeapon && !pRightWeapon )
-		return -1;
-		
-	if ( !pLeftWeapon && pRightWeapon )
-		return 1;
-	
-	// Existing squad members are better than non-members
-	if ( pLeft->bIsInSquad && !pRight->bIsInSquad )
-		return -1;
-
-	if ( !pLeft->bIsInSquad && pRight->bIsInSquad )
-		return 1;
-
-	// New squad members are better than older ones
-	if ( pLeft->bIsInSquad && pRight->bIsInSquad )
-		return pRight->iSquadIndex - pLeft->iSquadIndex;
-
-	// Finally, just take the closer
-	return (int)(pRight->distSq - pLeft->distSq);
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::FixupPlayerSquad()
-{
-	if ( !AI_IsSinglePlayer() )
-		return;
-
-	m_flTimeJoinedPlayerSquad = gpGlobals->curtime;
-	m_bWasInPlayerSquad = true;
-	if ( m_pSquad->NumMembers() > MAX_PLAYER_SQUAD )
-	{
-		CAI_BaseNPC *pFirstMember = m_pSquad->GetFirstMember(NULL);
-		m_pSquad->RemoveFromSquad( pFirstMember );
-		pFirstMember->ClearCommandGoal();
-
-		CNPC_Citizen *pFirstMemberCitizen = dynamic_cast< CNPC_Citizen * >( pFirstMember );
-		if ( pFirstMemberCitizen )
-		{
-			pFirstMemberCitizen->ClearFollowTarget();
-		}
-		else
-		{
-			CAI_FollowBehavior *pOldMemberFollowBehavior;
-			if ( pFirstMember->GetBehavior( &pOldMemberFollowBehavior ) )
-			{
-				pOldMemberFollowBehavior->SetFollowTarget( NULL );
-			}
-		}
-	}
-
-	ClearFollowTarget();
-
-	CAI_BaseNPC *pLeader = NULL;
-	AISquadIter_t iter;
-	for ( CAI_BaseNPC *pAllyNpc = m_pSquad->GetFirstMember(&iter); pAllyNpc; pAllyNpc = m_pSquad->GetNextMember(&iter) )
-	{
-		if ( pAllyNpc->IsCommandable() )
-		{
-			pLeader = pAllyNpc;
-			break;
-		}
-	}
-
-	if ( pLeader && pLeader != this )
-	{
-		const Vector &commandGoal = pLeader->GetCommandGoal();
-		if ( commandGoal != vec3_invalid )
-		{
-			SetCommandGoal( commandGoal );
-			SetCondition( COND_RECEIVED_ORDERS ); 
-			OnMoveOrder();
-		}
-		else
-		{
-			CAI_FollowBehavior *pLeaderFollowBehavior;
-			if ( pLeader->GetBehavior( &pLeaderFollowBehavior ) )
-			{
-				m_FollowBehavior.SetFollowTarget( pLeaderFollowBehavior->GetFollowTarget() );
-				m_FollowBehavior.SetParameters( m_FollowBehavior.GetFormation() );
-			}
-
-		}
-	}
-	else
-	{
-		m_FollowBehavior.SetFollowTarget( UTIL_GetLocalPlayer() );
-		m_FollowBehavior.SetParameters( AIF_SIMPLE );
-	}
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::ClearFollowTarget()
-{
-	m_FollowBehavior.SetFollowTarget( NULL );
-	m_FollowBehavior.SetParameters( AIF_SIMPLE );
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::UpdateFollowCommandPoint()
-{
-	if ( !AI_IsSinglePlayer() )
-		return;
-
-	if ( IsInPlayerSquad() )
-	{
-		if ( HaveCommandGoal() )
-		{
-			CBaseEntity *pFollowTarget = m_FollowBehavior.GetFollowTarget();
-			CBaseEntity *pCommandPoint = gEntList.FindEntityByClassname( NULL, COMMAND_POINT_CLASSNAME );
-			
-			if( !pCommandPoint )
-			{
-				DevMsg("**\nVERY BAD THING\nCommand point vanished! Creating a new one\n**\n");
-				pCommandPoint = CreateEntityByName( COMMAND_POINT_CLASSNAME );
-			}
-
-			if ( pFollowTarget != pCommandPoint )
-			{
-				pFollowTarget = pCommandPoint;
-				m_FollowBehavior.SetFollowTarget( pFollowTarget );
-				m_FollowBehavior.SetParameters( AIF_COMMANDER );
-			}
-			
-			if ( ( pCommandPoint->GetAbsOrigin() - GetCommandGoal() ).LengthSqr() > 0.01 )
-			{
-				UTIL_SetOrigin( pCommandPoint, GetCommandGoal(), false );
-			}
-		}
-		else
-		{
-			if ( IsFollowingCommandPoint() )
-				ClearFollowTarget();
-			if ( m_FollowBehavior.GetFollowTarget() != UTIL_GetLocalPlayer() )
-			{
-				DevMsg( "Expected to be following player, but not\n" );
-				m_FollowBehavior.SetFollowTarget( UTIL_GetLocalPlayer() );
-				m_FollowBehavior.SetParameters( AIF_SIMPLE );
-			}
-		}
-	}
-	else if ( IsFollowingCommandPoint() )
-		ClearFollowTarget();
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-bool CNPC_Citizen::IsFollowingCommandPoint()
-{
-	CBaseEntity *pFollowTarget = m_FollowBehavior.GetFollowTarget();
-	if ( pFollowTarget )
-		return FClassnameIs( pFollowTarget, COMMAND_POINT_CLASSNAME );
-	return false;
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-struct SquadMemberInfo_t
-{
-	CNPC_Citizen *	pMember;
-	bool			bSeesPlayer;
-	float			distSq;
-};
-
-int __cdecl SquadSortFunc( const SquadMemberInfo_t *pLeft, const SquadMemberInfo_t *pRight )
-{
-	if ( pLeft->bSeesPlayer && !pRight->bSeesPlayer )
-	{
-		return -1;
-	}
-
-	if ( !pLeft->bSeesPlayer && pRight->bSeesPlayer )
-	{
-		return 1;
-	}
-
-	return ( pLeft->distSq - pRight->distSq );
-}
-
-CAI_BaseNPC *CNPC_Citizen::GetSquadCommandRepresentative()
-{
-	if ( !AI_IsSinglePlayer() )
-		return NULL;
-
-	if ( IsInPlayerSquad() )
-	{
-		static float lastTime;
-		static AIHANDLE hCurrent;
-
-		if ( gpGlobals->curtime - lastTime > 2.0 || !hCurrent || !hCurrent->IsInPlayerSquad() ) // hCurrent will be NULL after level change
-		{
-			lastTime = gpGlobals->curtime;
-			hCurrent = NULL;
-
-			CUtlVectorFixed<SquadMemberInfo_t, MAX_SQUAD_MEMBERS> candidates;
-			CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
-
-			if ( pPlayer )
-			{
-				AISquadIter_t iter;
-				for ( CAI_BaseNPC *pAllyNpc = m_pSquad->GetFirstMember(&iter); pAllyNpc; pAllyNpc = m_pSquad->GetNextMember(&iter) )
-				{
-					if ( pAllyNpc->IsCommandable() && dynamic_cast<CNPC_Citizen *>(pAllyNpc) )
-					{
-						int i = candidates.AddToTail();
-						candidates[i].pMember = (CNPC_Citizen *)(pAllyNpc);
-						candidates[i].bSeesPlayer = pAllyNpc->HasCondition( COND_SEE_PLAYER );
-						candidates[i].distSq = ( pAllyNpc->GetAbsOrigin() - pPlayer->GetAbsOrigin() ).LengthSqr();
-					}
-				}
-
-				if ( candidates.Count() > 0 )
-				{
-					candidates.Sort( SquadSortFunc );
-					hCurrent = candidates[0].pMember;
-				}
-			}
-		}
-
-		if ( hCurrent != NULL )
-		{
-			Assert( dynamic_cast<CNPC_Citizen *>(hCurrent.Get()) && hCurrent->IsInPlayerSquad() );
-			return hCurrent;
-		}
-	}
-	return NULL;
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::SetSquad( CAI_Squad *pSquad )
-{
-	bool bWasInPlayerSquad = IsInPlayerSquad();
-
-	BaseClass::SetSquad( pSquad );
-
-	if( IsInPlayerSquad() && !bWasInPlayerSquad )
-	{
-		m_OnJoinedPlayerSquad.FireOutput(this, this);
-		if ( npc_citizen_insignia.GetBool() )
-			AddInsignia();
-	}
-	else if ( !IsInPlayerSquad() && bWasInPlayerSquad )
-	{
-		if ( npc_citizen_insignia.GetBool() )
-			RemoveInsignia();
-		m_OnLeftPlayerSquad.FireOutput(this, this);
-	}
-}
 
 //-----------------------------------------------------------------------------
 // Purpose:  This is a generic function (to be implemented by sub-classes) to
@@ -3372,6 +2694,13 @@ bool CNPC_Citizen::HandleInteraction(int interactionType, void *data, CBaseComba
 	return BaseClass::HandleInteraction( interactionType, data, sourceEnt );
 }
 
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+WeaponProficiency_t CNPC_Citizen::CalcWeaponProficiency( CBaseCombatWeapon *pWeapon )
+{
+	return WEAPON_PROFICIENCY_AVERAGE;
+}
+
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 bool CNPC_Citizen::FValidateHintType( CAI_Hint *pHint )
@@ -3393,7 +2722,7 @@ bool CNPC_Citizen::FValidateHintType( CAI_Hint *pHint )
 //-----------------------------------------------------------------------------
 bool CNPC_Citizen::CanHeal()
 { 
-	if ( !IsMedic() && !IsAmmoResupplier() )
+	if ( !IsMedic() )
 		return false;
 
 	if( !hl2_episodic.GetBool() )
@@ -3422,8 +2751,6 @@ bool CNPC_Citizen::ShouldHealTarget( CBaseEntity *pTarget, bool bActiveUse )
 	if ( IsSpeaking() )
 		return false;
 
-	bool bTargetIsPlayer = pTarget->IsPlayer();
-
 	// Don't heal or give ammo to targets in vehicles
 	CBaseCombatCharacter *pCCTarget = pTarget->MyCombatCharacterPointer();
 	if ( pCCTarget != NULL && pCCTarget->IsInAVehicle() )
@@ -3432,7 +2759,7 @@ bool CNPC_Citizen::ShouldHealTarget( CBaseEntity *pTarget, bool bActiveUse )
 	if ( IsMedic() )
 	{
 		Vector toPlayer = ( pTarget->GetAbsOrigin() - GetAbsOrigin() );
-	 	if (( bActiveUse || !HaveCommandGoal() || toPlayer.Length() < HEAL_TARGET_RANGE) 
+	 	if (( bActiveUse || toPlayer.Length() < HEAL_TARGET_RANGE) 
 #ifdef HL2_EPISODIC
 			&& fabs(toPlayer.z) < HEAL_TARGET_RANGE_Z
 #endif
@@ -3443,58 +2770,27 @@ bool CNPC_Citizen::ShouldHealTarget( CBaseEntity *pTarget, bool bActiveUse )
 	 			if ( bActiveUse )
 				{
 					// Ignore heal requests if we're going to heal a tiny amount
-					float timeFullHeal = m_flPlayerHealTime;
-					float timeRecharge = sk_citizen_heal_player_delay.GetFloat();
-					float maximumHealAmount = sk_citizen_heal_player.GetFloat();
+					float timeFullHeal = m_flAllyHealTime;
+					float timeRecharge = sk_citizen_heal_ally_delay.GetFloat();
+					float maximumHealAmount = sk_citizen_heal_ally.GetFloat();
 					float healAmt = ( maximumHealAmount * ( 1.0 - ( timeFullHeal - gpGlobals->curtime ) / timeRecharge ) );
 					if ( healAmt > pTarget->m_iMaxHealth - pTarget->m_iHealth )
 						healAmt = pTarget->m_iMaxHealth - pTarget->m_iHealth;
-					if ( healAmt < sk_citizen_heal_player_min_forced.GetFloat() )
-						return false;
 
 	 				return ( pTarget->m_iMaxHealth > pTarget->m_iHealth );
 				}
 	 				
 				// Are we ready to heal again?
-				bool bReadyToHeal = ( ( bTargetIsPlayer && m_flPlayerHealTime <= gpGlobals->curtime ) || 
-									  ( !bTargetIsPlayer && m_flAllyHealTime <= gpGlobals->curtime ) );
+				bool bReadyToHeal =  ( m_flAllyHealTime <= gpGlobals->curtime );
 
 				// Only heal if we're ready
 				if ( bReadyToHeal )
 				{
 					int requiredHealth;
 
-					if ( bTargetIsPlayer )
-						requiredHealth = pTarget->GetMaxHealth() - sk_citizen_heal_player.GetFloat();
-					else
-						requiredHealth = pTarget->GetMaxHealth() * sk_citizen_heal_player_min_pct.GetFloat();
+					requiredHealth = pTarget->GetMaxHealth() * sk_citizen_health.GetFloat();
 
 					if ( ( pTarget->m_iHealth <= requiredHealth ) && IRelationType( pTarget ) == D_LI )
-						return true;
-				}
-			}
-		}
-	}
-
-	// Only players need ammo
-	if ( IsAmmoResupplier() && bTargetIsPlayer )
-	{
-		if ( m_flPlayerGiveAmmoTime <= gpGlobals->curtime )
-		{
-			int iAmmoType = GetAmmoDef()->Index( STRING(m_iszAmmoSupply) );
-			if ( iAmmoType == -1 )
-			{
-				DevMsg("ERROR: Citizen attempting to give unknown ammo type (%s)\n", STRING(m_iszAmmoSupply) );
-			}
-			else
-			{
-				// Does the player need the ammo we can give him?
-				int iMax = GetAmmoDef()->MaxCarry(iAmmoType);
-				int iCount = ((CBasePlayer*)pTarget)->GetAmmoCount(iAmmoType);
-				if ( !iCount || ((iMax - iCount) >= m_iAmmoAmount) )
-				{
-					// Only give the player ammo if he has a weapon that uses it
-					if ( ((CBasePlayer*)pTarget)->Weapon_GetWpnForAmmo( iAmmoType ) )
 						return true;
 				}
 			}
@@ -3509,7 +2805,7 @@ bool CNPC_Citizen::ShouldHealTarget( CBaseEntity *pTarget, bool bActiveUse )
 //-----------------------------------------------------------------------------
 bool CNPC_Citizen::ShouldHealTossTarget( CBaseEntity *pTarget, bool bActiveUse )
 {
-	Disposition_t disposition;
+		Disposition_t disposition;
 
 	Assert( IsMedic() );
 	if ( !IsMedic() )
@@ -3522,7 +2818,7 @@ bool CNPC_Citizen::ShouldHealTossTarget( CBaseEntity *pTarget, bool bActiveUse )
 	if ( IsSpeaking() )
 		return false;
 
-	bool bTargetIsPlayer = pTarget->IsPlayer();
+	//bool bTargetIsPlayer = pTarget->IsPlayer();
 
 	// Don't heal or give ammo to targets in vehicles
 	CBaseCombatCharacter *pCCTarget = pTarget->MyCombatCharacterPointer();
@@ -3530,38 +2826,32 @@ bool CNPC_Citizen::ShouldHealTossTarget( CBaseEntity *pTarget, bool bActiveUse )
 		return false;
 
 	Vector toPlayer = ( pTarget->GetAbsOrigin() - GetAbsOrigin() );
-	if ( bActiveUse || !HaveCommandGoal() || toPlayer.Length() < HEAL_TOSS_TARGET_RANGE )
+	if ( bActiveUse )
 	{
 		if ( pTarget->m_iHealth > 0 )
 		{
 			if ( bActiveUse )
 			{
 				// Ignore heal requests if we're going to heal a tiny amount
-				float timeFullHeal = m_flPlayerHealTime;
-				float timeRecharge = sk_citizen_heal_player_delay.GetFloat();
-				float maximumHealAmount = sk_citizen_heal_player.GetFloat();
+				float timeFullHeal = m_flAllyHealTime;
+				float timeRecharge = sk_citizen_heal_ally_delay.GetFloat();
+				float maximumHealAmount = sk_citizen_heal_ally.GetFloat();
 				float healAmt = ( maximumHealAmount * ( 1.0 - ( timeFullHeal - gpGlobals->curtime ) / timeRecharge ) );
 				if ( healAmt > pTarget->m_iMaxHealth - pTarget->m_iHealth )
 					healAmt = pTarget->m_iMaxHealth - pTarget->m_iHealth;
-				if ( healAmt < sk_citizen_heal_player_min_forced.GetFloat() )
+				if ( healAmt < sk_citizen_heal_ally_min_forced.GetFloat() )
 					return false;
 
 				return ( pTarget->m_iMaxHealth > pTarget->m_iHealth );
 			}
 
 			// Are we ready to heal again?
-			bool bReadyToHeal = ( ( bTargetIsPlayer && m_flPlayerHealTime <= gpGlobals->curtime ) || 
-				( !bTargetIsPlayer && m_flAllyHealTime <= gpGlobals->curtime ) );
+			bool bReadyToHeal = ( m_flAllyHealTime <= gpGlobals->curtime );
 
 			// Only heal if we're ready
 			if ( bReadyToHeal )
 			{
-				int requiredHealth;
-
-				if ( bTargetIsPlayer )
-					requiredHealth = pTarget->GetMaxHealth() - sk_citizen_heal_player.GetFloat();
-				else
-					requiredHealth = pTarget->GetMaxHealth() * sk_citizen_heal_player_min_pct.GetFloat();
+				int requiredHealth = pTarget->GetMaxHealth() * sk_citizen_heal_ally_min_pct.GetFloat();
 
 				if ( ( pTarget->m_iHealth <= requiredHealth ) && IRelationType( pTarget ) == D_LI )
 					return true;
@@ -3595,20 +2885,11 @@ void CNPC_Citizen::Heal()
 		float timeFullHeal;
 		float timeRecharge;
 		float maximumHealAmount;
-		if ( pTarget->IsPlayer() )
-		{
-			timeFullHeal 		= m_flPlayerHealTime;
-			timeRecharge 		= sk_citizen_heal_player_delay.GetFloat();
-			maximumHealAmount 	= sk_citizen_heal_player.GetFloat();
-			m_flPlayerHealTime 	= gpGlobals->curtime + timeRecharge;
-		}
-		else
-		{
-			timeFullHeal 		= m_flAllyHealTime;
-			timeRecharge 		= sk_citizen_heal_ally_delay.GetFloat();
-			maximumHealAmount 	= sk_citizen_heal_ally.GetFloat();
-			m_flAllyHealTime 	= gpGlobals->curtime + timeRecharge;
-		}
+
+		timeFullHeal 		= m_flAllyHealTime;
+		timeRecharge 		= sk_citizen_heal_ally_delay.GetFloat();
+		maximumHealAmount 	= sk_citizen_heal_ally.GetFloat();
+		m_flAllyHealTime 	= gpGlobals->curtime + timeRecharge;
 		
 		float healAmt = ( maximumHealAmount * ( 1.0 - ( timeFullHeal - gpGlobals->curtime ) / timeRecharge ) );
 		
@@ -3621,31 +2902,12 @@ void CNPC_Citizen::Heal()
 		{
 			if ( pTarget->IsPlayer() && npc_citizen_medic_emit_sound.GetBool() )
 			{
-				CPASAttenuationFilter filter( pTarget, "HealthKit.Touch" );
-				EmitSound( filter, pTarget->entindex(), "HealthKit.Touch" );
+				CPASAttenuationFilter filter(pTarget, "HealthKit.Touch");//EmitSound( CPASAttenuationFilter( pTarget, "HealthKit.Touch" ), pTarget->entindex(), "HealthKit.Touch" );
+				EmitSound(filter, pTarget->entindex(), "HealthKit.Touch");
 			}
 
 			pTarget->TakeHealth( healAmt, DMG_GENERIC );
 			pTarget->RemoveAllDecals();
-		}
-	}
-
-	if ( IsAmmoResupplier() )
-	{
-		// Non-players don't use ammo
-		if ( pTarget->IsPlayer() )
-		{
-			int iAmmoType = GetAmmoDef()->Index( STRING(m_iszAmmoSupply) );
-			if ( iAmmoType == -1 )
-			{
-				DevMsg("ERROR: Citizen attempting to give unknown ammo type (%s)\n", STRING(m_iszAmmoSupply) );
-			}
-			else
-			{
-				((CBasePlayer*)pTarget)->GiveAmmo( m_iAmmoAmount, iAmmoType, false );
-			}
-
-			m_flPlayerGiveAmmoTime = gpGlobals->curtime + sk_citizen_giveammo_player_delay.GetFloat();
 		}
 	}
 }
@@ -3740,8 +3002,7 @@ void	CNPC_Citizen::InputForceHealthKitToss( inputdata_t &inputdata )
 bool CNPC_Citizen::ShouldLookForHealthItem()
 {
 	// Definitely do not take health if not in the player's squad.
-	if( !IsInPlayerSquad() )
-		return false;
+	return false;
 
 	if( gpGlobals->curtime < m_flNextHealthSearchTime )
 		return false;
@@ -3750,8 +3011,10 @@ bool CNPC_Citizen::ShouldLookForHealthItem()
 	if( GetHealth() >= GetMaxHealth() )
 		return false;
 
+	CBasePlayer *pPlayer = AI_GetSinglePlayer();
+
 	// Player is hurt, don't steal his health.
-	if( AI_IsSinglePlayer() && UTIL_GetLocalPlayer()->GetHealth() <= UTIL_GetLocalPlayer()->GetHealth() * 0.75f )
+	if( pPlayer && pPlayer->GetHealth() <= pPlayer->GetMaxHealth() * 0.75f )
 		return false;
 
 	// Wait till you're standing still.
@@ -3782,14 +3045,6 @@ void CNPC_Citizen::OnGivenWeapon( CBaseCombatWeapon *pNewWeapon )
 	FixupMattWeapon();
 }
 
-//------------------------------------------------------------------------------
-//------------------------------------------------------------------------------
-void CNPC_Citizen::InputSetCommandable( inputdata_t &inputdata )
-{
-	RemoveSpawnFlags( SF_CITIZEN_NOT_COMMANDABLE );
-	gm_PlayerSquadEvaluateTimer.Force();
-}
-
 //-----------------------------------------------------------------------------
 // Purpose: 
 // Input  : &inputdata - 
@@ -3806,24 +3061,6 @@ void CNPC_Citizen::InputSetMedicOn( inputdata_t &inputdata )
 void CNPC_Citizen::InputSetMedicOff( inputdata_t &inputdata )
 {
 	RemoveSpawnFlags( SF_CITIZEN_MEDIC );
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: 
-// Input  : &inputdata - 
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::InputSetAmmoResupplierOn( inputdata_t &inputdata )
-{
-	AddSpawnFlags( SF_CITIZEN_AMMORESUPPLIER );
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: 
-// Input  : &inputdata - 
-//-----------------------------------------------------------------------------
-void CNPC_Citizen::InputSetAmmoResupplierOff( inputdata_t &inputdata )
-{
-	RemoveSpawnFlags( SF_CITIZEN_AMMORESUPPLIER );
 }
 
 //------------------------------------------------------------------------------
@@ -3876,9 +3113,14 @@ AI_BEGIN_CUSTOM_NPC( npc_citizen, CNPC_Citizen )
 	DECLARE_TASK( TASK_CIT_SIT_ON_TRAIN )
 	DECLARE_TASK( TASK_CIT_LEAVE_TRAIN )
 	DECLARE_TASK( TASK_CIT_SPEAK_MOURNING )
+	DECLARE_TASK( TASK_CIT_FACE_THROW_TARGET )
 #if HL2_EPISODIC
 	DECLARE_TASK( TASK_CIT_HEAL_TOSS )
 #endif
+
+	DECLARE_SQUADSLOT( SQUAD_SLOT_CITIZEN_RPG1 )
+	DECLARE_SQUADSLOT( SQUAD_SLOT_CITIZEN_RPG2 )
+	DECLARE_SQUADSLOT( SQUAD_SLOT_CITIZEN_MOLOTOV )
 
 	DECLARE_ACTIVITY( ACT_CIT_HANDSUP )
 	DECLARE_ACTIVITY( ACT_CIT_BLINDED )
@@ -3889,10 +3131,29 @@ AI_BEGIN_CUSTOM_NPC( npc_citizen, CNPC_Citizen )
 	DECLARE_CONDITION( COND_CIT_PLAYERHEALREQUEST )
 	DECLARE_CONDITION( COND_CIT_COMMANDHEAL )
 	DECLARE_CONDITION( COND_CIT_START_INSPECTION )
+	DECLARE_CONDITION( COND_CIT_CAN_HAVE_MOLOTOV )
 
 	//Events
 	DECLARE_ANIMEVENT( AE_CITIZEN_GET_PACKAGE )
 	DECLARE_ANIMEVENT( AE_CITIZEN_HEAL )
+
+	//=========================================================
+	// > SCHED_CITIZEN_THROW_MOLOTOV
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_CITIZEN_THROW_MOLOTOV,
+
+		"	Tasks"
+		"		TASK_STOP_MOVING			0"
+		"		TASK_CIT_FACE_THROW_TARGET	0"
+		"		TASK_ANNOUNCE_ATTACK		2"	// 2 = grenade
+		"		TASK_WAIT					1"
+		"		TASK_PLAY_SEQUENCE			ACTIVITY:ACT_RANGE_ATTACK_THROW"
+	//	"		TASK_SET_SCHEDULE			SCHEDULE:SCHED_TAKE_COVER_FROM_ENEMY"
+		""
+		"	Interrupts"
+	)
 
 	//=========================================================
 	// > SCHED_SCI_HEAL
@@ -4135,7 +3396,11 @@ void CCitizenResponseSystem::InputResponseVitalNPC( inputdata_t &inputdata )
 void CCitizenResponseSystem::ResponseThink()
 {
 	bool bStayActive = false;
-	if ( AI_IsSinglePlayer() )
+
+	CBasePlayer *pPlayer = AI_GetSinglePlayer();
+
+
+	if ( pPlayer )
 	{
 		for ( int i = 0; i < MAX_CITIZEN_RESPONSES; i++ )
 		{
@@ -4152,7 +3417,7 @@ void CCitizenResponseSystem::ResponseThink()
 					float flNearestDist = (CITIZEN_RESPONSE_DISTANCE * CITIZEN_RESPONSE_DISTANCE);
 					CBaseEntity *pNearestCitizen = NULL;
 					CBaseEntity *pCitizen = NULL;
-					CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
+					//CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
 					while ( (pCitizen = gEntList.FindEntityByClassname( pCitizen, "npc_citizen" ) ) != NULL)
 					{
 						float flDistToPlayer = (pPlayer->WorldSpaceCenter() - pCitizen->WorldSpaceCenter()).LengthSqr();
@@ -4186,62 +3451,6 @@ void CCitizenResponseSystem::ResponseThink()
 	{
 		SetNextThink( gpGlobals->curtime + 0.1 );
 	}
-}
-
-void CNPC_Citizen::AddInsignia()
-{
-	CBaseEntity *pMark = CreateEntityByName( "squadinsignia" );
-	pMark->SetOwnerEntity( this );
-	pMark->Spawn();
-}
-
-void CNPC_Citizen::RemoveInsignia()
-{
-	// This is crap right now.
-	CBaseEntity *FirstEnt();
-	CBaseEntity *pEntity = gEntList.FirstEnt();
-
-	while( pEntity )
-	{
-		if( pEntity->GetOwnerEntity() == this )
-		{
-			// Is this my insignia?
-			CSquadInsignia *pInsignia = dynamic_cast<CSquadInsignia *>(pEntity);
-
-			if( pInsignia )
-			{
-				UTIL_Remove( pInsignia );
-				return;
-			}
-		}
-
-		pEntity = gEntList.NextEnt( pEntity );
-	}
-}
-
-//-----------------------------------------------------------------------------
-LINK_ENTITY_TO_CLASS( squadinsignia, CSquadInsignia );
-
-void CSquadInsignia::Spawn()
-{
-	CAI_BaseNPC *pOwner = ( GetOwnerEntity() ) ? GetOwnerEntity()->MyNPCPointer() : NULL;
-
-	if ( pOwner )
-	{
-		int attachment = pOwner->LookupAttachment( "eyes" );
-		if ( attachment )
-		{
-			SetAbsAngles( GetOwnerEntity()->GetAbsAngles() );
-			SetParent( GetOwnerEntity(), attachment );
-
-			Vector vecPosition;
-			vecPosition.Init( -2.5, 0, 3.9 );
-			SetLocalOrigin( vecPosition );
-		}
-	}
-
-	SetModel( INSIGNIA_MODEL );
-	SetSolid( SOLID_NONE );	
 }
 
 //-----------------------------------------------------------------------------

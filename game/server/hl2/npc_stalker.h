@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -32,6 +32,9 @@ public:
 	float			m_flNextScrambleSoundTime;
 	float			m_flNextNPCThink;
 
+	//copied from ai_playerally - TERO
+	float			m_flTimeLastRegen;
+
 	// ------------------------------
 	//	Laser Beam
 	// ------------------------------
@@ -62,6 +65,9 @@ public:
 	// ------------------------------
 	CAI_Schedule*	WakeUp(void);
 	void			GoDormant(void);
+
+	//TERO: copied from Eli
+	void			SetupWithoutParent( void );
 
 public:
 	void			Spawn( void );

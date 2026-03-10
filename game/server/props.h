@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -143,6 +143,8 @@ public:
 	bool			HasInteraction( propdata_interactions_t Interaction ) { return ( m_iInteractions & (1 << Interaction) ) != 0; }
 	void			SetMultiplayerBreakMode( mp_break_t mode ) { m_mpBreakMode = mode; }
 	mp_break_t		GetMultiplayerBreakMode( void ) const { return m_mpBreakMode; }
+	void			SetDontBreakIfMaxGibs( int max ) { m_iDontBreakIfMaxGibs = max; }
+	int				GetDontBreakIfMaxGibs( void ) { return m_iDontBreakIfMaxGibs; }
 
 // derived by multiplayer phys props:
 	virtual void	SetPhysicsMode(int iMode) {}
@@ -177,7 +179,8 @@ protected:
 	int				m_iInteractions;
 	float			m_explodeDamage;
 	float			m_explodeRadius;
-	string_t		m_iszBreakModelMessage;
+
+	int				m_iDontBreakIfMaxGibs; //TERO
 
 	// Count of how many pieces we'll break into, custom or generic
 	int				m_iNumBreakableChunks;
@@ -311,7 +314,6 @@ public:
 	short				m_nPendingSequence;
 
 	bool				m_bStartDisabled;
-	bool				m_bDisableBoneFollowers;
 
 	CNetworkVar( bool, m_bUseHitboxesForRenderBox );
 
@@ -378,7 +380,7 @@ public:
 
 	string_t GetPhysOverrideScript( void ) { return m_iszOverrideScript; }
 	float	GetMassScale( void ) { return m_massScale; }
-
+	
 private:
 	// Compute impulse to apply to the enabled entity.
 	void ComputeEnablingImpulse( int index, gamevcollisionevent_t *pEvent );

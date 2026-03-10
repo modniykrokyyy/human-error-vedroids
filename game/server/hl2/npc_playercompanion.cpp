@@ -1,9 +1,8 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:
 //
 //=============================================================================//
-
 #include "cbase.h"
 
 #include "npc_playercompanion.h"
@@ -31,6 +30,8 @@
 #include "grenade_frag.h"
 #include <KeyValues.h>
 #include "physics_npc_solver.h"
+#include "weapon_flaregun.h"
+#include "Human_Error/hlss_minershat.h"
 
 ConVar ai_debug_readiness("ai_debug_readiness", "0" );
 ConVar ai_use_readiness("ai_use_readiness", "1" ); // 0 = off, 1 = on, 2 = on for player squad only
@@ -64,6 +65,10 @@ BEGIN_DATADESC( CNPC_PlayerCompanion )
 	DEFINE_FIELD( 	m_bMovingAwayFromPlayer, 	FIELD_BOOLEAN ),
 	DEFINE_EMBEDDED( m_SpeechWatch_PlayerLooking ),
 	DEFINE_EMBEDDED( m_FakeOutMortarTimer ),
+
+	
+	DEFINE_KEYFIELD( m_bMinersHat,					FIELD_BOOLEAN,			"flare" ),
+	DEFINE_FIELD( m_hMinersHat,						FIELD_EHANDLE ),
 
 // (recomputed)
 //						m_bWeightPathsInCover	
@@ -188,6 +193,11 @@ void CNPC_PlayerCompanion::Precache()
 	PrecacheModel( "models/props_junk/flare.mdl" );
 #endif // HL2_EPISODIC
 
+	if (m_bMinersHat)
+	{
+		UTIL_PrecacheOther("hlss_miners_hat");
+	}
+
 	BaseClass::Precache();
 }
 
@@ -246,6 +256,12 @@ void CNPC_PlayerCompanion::Spawn()
 #endif // HL2_EPISODIC
 
 	BaseClass::Spawn();
+
+	m_hMinersHat = NULL;
+	if (m_bMinersHat)
+	{
+		AddHat();
+	}
 }
 
 
@@ -287,9 +303,11 @@ bool CNPC_PlayerCompanion::ShouldAlwaysThink()
 	return ( BaseClass::ShouldAlwaysThink() || ( GetFollowBehavior().GetFollowTarget() && GetFollowBehavior().GetFollowTarget()->IsPlayer() ) ); 
 }
 
+
 //-----------------------------------------------------------------------------
+// TERO: I removed this so that citizens would attack turrets
 //-----------------------------------------------------------------------------
-Disposition_t CNPC_PlayerCompanion::IRelationType( CBaseEntity *pTarget )
+/*Disposition_t CNPC_PlayerCompanion::IRelationType( CBaseEntity *pTarget )
 {
 	if ( !pTarget )
 		return D_NU;
@@ -328,7 +346,7 @@ Disposition_t CNPC_PlayerCompanion::IRelationType( CBaseEntity *pTarget )
 	}
 
 	return baseRelationship;
-}
+}*/
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -1378,6 +1396,70 @@ Activity CNPC_PlayerCompanion::NPC_TranslateActivity( Activity activity )
 
 	return TranslateActivityReadiness( activity );
 }
+void CNPC_PlayerCompanion::UpdateOnRemove()
+{
+	RemoveHat();
+
+	BaseClass::UpdateOnRemove();
+}
+
+void CNPC_PlayerCompanion::Event_Killed( const CTakeDamageInfo &info )
+{
+	if (m_hMinersHat)
+	{
+		Vector vecSpeed = info.GetDamageForce();
+
+		m_hMinersHat->SetMoveType( MOVETYPE_FLYGRAVITY, MOVECOLLIDE_FLY_BOUNCE );
+		m_hMinersHat->SetAbsVelocity( vecSpeed );
+		m_hMinersHat->SetGravity( 1.0f );
+		m_hMinersHat->SetParent( NULL );
+		m_hMinersHat->Die(10.0f);
+		m_hMinersHat = NULL;
+	}
+
+	m_bMinersHat = false;
+
+	BaseClass::Event_Killed( info );
+}
+
+
+
+void CNPC_PlayerCompanion::RemoveHat() //, bool bRemoveOwner)
+{
+	if (m_hMinersHat)
+	{
+		m_hMinersHat->SetOwnerEntity( NULL );
+
+		UTIL_Remove( m_hMinersHat );
+		m_hMinersHat = NULL;
+	}
+
+	m_bMinersHat = false;
+}
+
+void CNPC_PlayerCompanion::AddHat()
+{
+	if (!m_hMinersHat)
+	{
+		int iHead = LookupAttachment("eyes");
+		Vector vecOrigin;
+		QAngle angAngles;
+		GetAttachment(iHead, vecOrigin, angAngles);
+
+		CHLSS_MinersHat *pHat = CHLSS_MinersHat::Create( vecOrigin, angAngles, NULL );
+
+		if (pHat)
+		{
+			//pFlare->SetAbsOrigin( vecOrigin - (vecForward * 6.0f) );
+			pHat->SetParent(this, iHead);	
+			pHat->m_bLight = true;
+
+			DispatchSpawn( pHat );
+
+			m_hMinersHat = pHat;
+		}
+	}
+}
 
 //------------------------------------------------------------------------------
 // Purpose: Handle animation events
@@ -1416,29 +1498,32 @@ void CNPC_PlayerCompanion::HandleAnimEvent( animevent_t *pEvent )
 	// Drop the flare to the ground
 	if ( pEvent->event == AE_COMPANION_RELEASE_FLARE )
 	{
-		// Detach
-		m_hFlare->SetParent( NULL );
-		m_hFlare->Spawn();
-		m_hFlare->RemoveInteraction( PROPINTER_PHYSGUN_CREATE_FLARE );
+		if (m_hFlare)
+		{
+			// Detach
+			m_hFlare->SetParent( NULL );
+			m_hFlare->Spawn();
+			m_hFlare->RemoveInteraction( PROPINTER_PHYSGUN_CREATE_FLARE );
 
-		// Disable collisions between the NPC and the flare
-		PhysDisableEntityCollisions( this, m_hFlare );
+			// Disable collisions between the NPC and the flare
+			PhysDisableEntityCollisions( this, m_hFlare );
 
-		// TODO: Find the velocity of the attachment point, at this time, in the animation cycle
+			// TODO: Find the velocity of the attachment point, at this time, in the animation cycle
 
-		// Construct a toss velocity
-		Vector vecToss;
-		AngleVectors( GetAbsAngles(), &vecToss );
-		VectorNormalize( vecToss );
-		vecToss *= random->RandomFloat( 64.0f, 72.0f );
-		vecToss[2] += 64.0f;
+			// Construct a toss velocity
+			Vector vecToss;
+			AngleVectors( GetAbsAngles(), &vecToss );
+			VectorNormalize( vecToss );
+			vecToss *= random->RandomFloat( 64.0f, 72.0f );
+			vecToss[2] += 64.0f;
 
-		// Throw it
-		IPhysicsObject *pObj = m_hFlare->VPhysicsGetObject();
-		pObj->ApplyForceCenter( vecToss );
+			// Throw it
+			IPhysicsObject *pObj = m_hFlare->VPhysicsGetObject();
+			pObj->ApplyForceCenter( vecToss );
 
-		// Forget about the flare at this point
-		m_hFlare = NULL;
+			// Forget about the flare at this point
+			m_hFlare = NULL;
+		}
 
 		return;
 	}
@@ -1601,7 +1686,8 @@ void CNPC_PlayerCompanion::SubtractReadiness( float flSub, bool bOverrideLock )
 		return;
 
 	// Prevent readiness from going below 0 (below 0 is only for scripted states)
-	SetReadinessValue( MAX(GetReadinessValue() - flSub, 0) );
+	float READINESS_MAX_VALUE = GetReadinessValue();
+	SetReadinessValue(max(static_cast<float>(READINESS_MAX_VALUE) - static_cast<float>(flSub), 0.0f)); //SetReadinessValue( max( GetReadinessValue() - flSub, 0) );
 }
 
 //-----------------------------------------------------------------------------
@@ -1628,8 +1714,8 @@ void CNPC_PlayerCompanion::SetReadinessValue( float flSet )
 
 	int priorReadiness = GetReadinessLevel();
 
-	flSet = MIN( 1.0f, flSet );
-	flSet = MAX( READINESS_MIN_VALUE, flSet );
+	flSet = min( 1.0f, flSet );
+	flSet = max( static_cast<float>(READINESS_MIN_VALUE), flSet );
 
 	m_flReadiness = flSet;
 
@@ -2301,7 +2387,7 @@ void CNPC_PlayerCompanion::DecalTrace( trace_t *pTrace, char const *decalName )
 //------------------------------------------------------------------------------
 bool CNPC_PlayerCompanion::FCanCheckAttacks()
 {
-	if( GetEnemy() && ( IsSniper(GetEnemy()) || IsMortar(GetEnemy()) || IsTurret(GetEnemy()) ) )
+	if ( GetEnemy() && ( IsSniper(GetEnemy()) || IsMortar(GetEnemy()) ) )// || IsTurret(GetEnemy()) ) )
 	{
 		// Don't attack the sniper or the mortar.
 		return false;
@@ -2878,6 +2964,8 @@ bool CNPC_PlayerCompanion::OverrideMove( float flInterval )
 {
 	bool overrode = BaseClass::OverrideMove( flInterval );
 
+	bool isPlayerAlly = (Classify() == CLASS_METROPOLICE || Classify() == CLASS_PLAYER_ALLY || Classify() == CLASS_PLAYER_ALLY_VITAL);
+
 	if ( !overrode && GetNavigator()->GetGoalType() != GOALTYPE_NONE )
 	{
 		string_t iszEnvFire = AllocPooledString( "env_fire" );
@@ -2918,7 +3006,7 @@ bool CNPC_PlayerCompanion::OverrideMove( float flInterval )
 				}
 			}
 #ifdef HL2_EPISODIC			
-			else if ( pEntity->m_iClassname == iszNPCTurretFloor )
+			else if ( pEntity->m_iClassname == iszNPCTurretFloor && !isPlayerAlly ) //TERO: added is player ally check
 			{
 				UTIL_TraceLine( WorldSpaceCenter(), pEntity->WorldSpaceCenter(), MASK_BLOCKLOS, pEntity, COLLISION_GROUP_NONE, &tr );
 				if (tr.fraction == 1.0 && !tr.startsolid)
@@ -2946,7 +3034,8 @@ bool CNPC_PlayerCompanion::OverrideMove( float flInterval )
 			else if ( pEntity->m_iClassname == iszBounceBomb )
 			{
 				CBounceBomb *pBomb = static_cast<CBounceBomb *>(pEntity);
-				if ( pBomb && !pBomb->IsPlayerPlaced() && pBomb->IsAwake() )
+
+				if ( pBomb && !isPlayerAlly && pBomb->IsAwake() )	//TERO: added is player ally check, used to be !pBomb->IsPlayerPlaced() 
 				{
 					UTIL_TraceLine( WorldSpaceCenter(), pEntity->WorldSpaceCenter(), MASK_BLOCKLOS, pEntity, COLLISION_GROUP_NONE, &tr );
 					if (tr.fraction == 1.0 && !tr.startsolid)
@@ -3538,7 +3627,8 @@ void CNPC_PlayerCompanion::InputClearAllOuputs( inputdata_t &inputdata )
 			typedescription_t *dataDesc = &dmap->dataDesc[i];
 			if ( ( dataDesc->fieldType == FIELD_CUSTOM ) && ( dataDesc->flags & FTYPEDESC_OUTPUT ) )
 			{
-				CBaseEntityOutput *pOutput = (CBaseEntityOutput *)((intp)this + (intp)dataDesc->fieldOffset[0]);
+				CBaseEntityOutput* pOutput = reinterpret_cast<CBaseEntityOutput*>(reinterpret_cast<uintptr_t>(this) + static_cast<size_t>(dataDesc->fieldOffset[0]));
+				//CBaseEntityOutput *pOutput = (CBaseEntityOutput *)((int)this + (int)dataDesc->fieldOffset[0]);
 				pOutput->DeleteAllElements();
 				/*
 				int nConnections = pOutput->NumberOfElements();

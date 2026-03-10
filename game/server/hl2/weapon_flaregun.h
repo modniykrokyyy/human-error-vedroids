@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -17,6 +17,7 @@
 #define	SF_FLARE_NO_SMOKE	0x00000002
 #define	SF_FLARE_INFINITE	0x00000004
 #define	SF_FLARE_START_OFF	0x00000008
+#define SF_FLARE_NO_SOUND	0x00000010
 
 #define	FLARE_DURATION		30.0f
 #define FLARE_DECAY_TIME	10.0f

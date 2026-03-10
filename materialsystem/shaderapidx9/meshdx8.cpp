@@ -2576,6 +2576,13 @@ bool CMeshDX8::Lock( int nVertexCount, bool bAppend, VertexDesc_t &desc )
 {
 	Assert( !m_IsVBLocked );
 
+	if ( nVertexCount <= 0 )
+    {
+        CVertexBufferBase::ComputeVertexDescription( 0, 0, desc );
+        desc.m_nFirstVertex = 0;
+        return false;
+    }
+
 	// Just give the app crap buffers to fill up while we're suppressed...
 	if ( g_pShaderDeviceDx8->IsDeactivated() || (nVertexCount == 0))
 	{
@@ -2620,10 +2627,12 @@ bool CMeshDX8::Lock( int nVertexCount, bool bAppend, VertexDesc_t &desc )
 				Error( "Out of OS Paged Pool Memory! For more information, please see\nhttp://support.steampowered.com/cgi-bin/steampowered.cfg/php/enduser/std_adp.php?p_faqid=150\n" );
 			}
 			else
-			{
-				Assert( 0 );
-				Error( "failed to lock vertex buffer in CMeshDX8::LockVertexBuffer: nVertexCount=%d, nFirstVertex=%d\n", nVertexCount, desc.m_nFirstVertex );
-			}
+            {
+                Warning( "failed to lock vertex buffer in CMeshDX8::LockVertexBuffer: nVertexCount=%d, nFirstVertex=%d - skipping draw\n", nVertexCount, desc.m_nFirstVertex );
+                CVertexBufferBase::ComputeVertexDescription( 0, 0, desc );
+                desc.m_nFirstVertex = 0;
+                return false;
+            }
 		}
 		CVertexBufferBase::ComputeVertexDescription( 0, 0, desc );
 		return false;

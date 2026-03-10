@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -28,6 +28,7 @@
 #include "vgui_bitmappanel.h"
 #include "filesystem.h"
 #include "iinput.h"
+#include "Human_Error/tne_RenderTargets.h"
 
 #include <vgui/IInputInternal.h>
 extern vgui::IInputInternal *g_InputInternal;
@@ -344,8 +345,9 @@ void ScreenToWorld( int mousex, int mousey, float fov,
 	// Invert Y
 	dy = c_y - (float)mousey;
 
-	// Convert view plane distance
-	dist = c_x / tan( M_PI * scaled_fov / 360.0 );
+	// Convert view plane distance, fixed with the "Compile under VS2008"
+	float dist_denom = tan( M_PI * scaled_fov / 360.0f ); 	 
+	dist = c_x / dist_denom;
 
 	// Decompose view angles
 	AngleVectors( vecRenderAngles, &vpn, &vright, &vup );
@@ -565,7 +567,7 @@ void C_VGuiScreen::DrawScreenOverlay()
 int	C_VGuiScreen::DrawModel( int flags )
 {
 	vgui::Panel *pPanel = m_PanelWrapper.GetPanel();
-	if (!pPanel || !IsActive())
+	if (!pPanel || !IsActive() )
 		return 0;
 	
 	// Don't bother drawing stuff not visible to me...
@@ -586,8 +588,10 @@ int	C_VGuiScreen::DrawModel( int flags )
 	// FIXME: Can this be cached off?
 	ComputePanelToWorld();
 
+	//g_pMatSystemSurface->Set3DPaintTempRenderTarget( MANHACK_SCREEN_MATERIAL );
 	g_pMatSystemSurface->DrawPanelIn3DSpace( pPanel->GetVPanel(), m_PanelToWorld, 
 		m_nPixelWidth, m_nPixelHeight, m_flWidth, m_flHeight );
+	//g_pMatSystemSurface->Reset3DPaintTempRenderTarget();
 
 	// Finally, a pass to set the z buffer...
 	DrawScreenOverlay();

@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -27,7 +27,7 @@
 using namespace vgui;
 
 #include "hudelement.h"
-#include "hud_numericdisplay.h"
+#include "Human_Error/hud_icondisplay.h"
 
 #include "convar.h"
 
@@ -39,9 +39,21 @@ using namespace vgui;
 //-----------------------------------------------------------------------------
 // Purpose: Health panel
 //-----------------------------------------------------------------------------
-class CHudHealth : public CHudElement, public CHudNumericDisplay
+class CHudHealth : public CHudElement, public CHudIconDisplay
 {
-	DECLARE_CLASS_SIMPLE( CHudHealth, CHudNumericDisplay );
+	DECLARE_CLASS_SIMPLE( CHudHealth, CHudIconDisplay );
+
+	/*~CHudHealth()
+	{
+		if (m_pBar)
+		{
+			m_pBar->DeletePanel();
+		}
+		if (m_pBase)
+		{
+			m_pBase->DeletePanel();
+		}
+	}*/
 
 public:
 	CHudHealth( const char *pElementName );
@@ -64,7 +76,7 @@ DECLARE_HUD_MESSAGE( CHudHealth, Damage );
 //-----------------------------------------------------------------------------
 // Purpose: Constructor
 //-----------------------------------------------------------------------------
-CHudHealth::CHudHealth( const char *pElementName ) : CHudElement( pElementName ), CHudNumericDisplay(NULL, "HudHealth")
+CHudHealth::CHudHealth( const char *pElementName ) : CHudElement( pElementName ), CHudIconDisplay(NULL, "HudHealth")
 {
 	SetHiddenBits( HIDEHUD_HEALTH | HIDEHUD_PLAYERDEAD | HIDEHUD_NEEDSUIT );
 }
@@ -83,19 +95,43 @@ void CHudHealth::Init()
 //-----------------------------------------------------------------------------
 void CHudHealth::Reset()
 {
+	BaseClass::Reset();
+
 	m_iHealth		= INIT_HEALTH;
 	m_bitsDamage	= 0;
 
-	wchar_t *tempString = g_pVGuiLocalize->Find("#Valve_Hud_HEALTH");
+	SetIcon(L"+");
+	SetLabel(L"Health");
 
-	if (tempString)
+	/*m_bSimple = true;
+
+	if (!m_pBase)
+		m_pBase = new ImageFX( this, "sprites/metrocop_hud/hud_base", "MetrocopHud_Left" );	//hud_right
+
+	if (m_pBase)
 	{
-		SetLabelText(tempString);
+		m_pBase->SetCustomPoints(true);
+		m_pBase->SetVisibleEx(true);
+
+		m_pBase->SetZPos(5);	
+		PaintSimpleBar(m_pBase, 100, 100, icon_ypos + (surface()->GetFontTall(m_hSmallNumberFont)*0.6) + (GetWide()*0.1), 0.2f);
 	}
-	else
+
+	if (!m_pBar)
+		m_pBar = new ImageFX( this, "sprites/metrocop_hud/hud_health", "MetrocopHud_Health" ); //"sprites/metrocop_hud/hud_bigbar"
+
+	if (m_pBar)
 	{
-		SetLabelText(L"HEALTH");
+		m_pBar->SetPosEx(GetWide()/2,GetTall()/2);
+		m_pBar->SetImageSize(GetWide(), GetTall());
+		m_pBar->SetCustomPoints(true);
+		m_pBar->SetVisibleEx(true);
+
+		m_pBar->SetZPos(6);
 	}
+
+	DevMsg("Health hud reset\n");*/
+
 	SetDisplayValue(m_iHealth);
 }
 

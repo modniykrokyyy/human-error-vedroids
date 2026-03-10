@@ -222,6 +222,7 @@ public:
 	virtual const Vector GetLocalOrigin( void );
 	virtual void SetLocalAngles( const QAngle& angles );
 	virtual const QAngle GetLocalAngles( void );
+	virtual void PostClientMessagesSent( void );
 	virtual bool IsEFlagSet( int nEFlagMask );
 
 	virtual void RunPlayerMove( CBotCmd *ucmd );
@@ -448,7 +449,7 @@ public:
 	virtual void			SetStepSoundTime( stepsoundtimes_t iStepSoundTime, bool bWalking );
 	virtual void			DeathSound( const CTakeDamageInfo &info );
 	virtual const char*		GetSceneSoundToken( void ) { return ""; }
-
+	
 	virtual void			OnEmitFootstepSound( const CSoundParameters& params, const Vector& vecOrigin, float fVolume ) {}
 
 	Class_T					Classify ( void );
@@ -462,9 +463,9 @@ public:
 
 	void					NotifySinglePlayerGameEnding() { m_bSinglePlayerGameEnding = true; }
 	bool					IsSinglePlayerGameEnding() { return m_bSinglePlayerGameEnding == true; }
-
-	bool					HandleVoteCommands( const CCommand &args );
 	
+	bool					HandleVoteCommands( const CCommand &args );
+
 	// Observer functions
 	virtual bool			StartObserverMode(int mode); // true, if successful
 	virtual void			StopObserverMode( void );	// stop spectator mode
@@ -510,6 +511,7 @@ public:
 	void					AddPoints( int score, bool bAllowNegativeScore );
 	void					AddPointsToTeam( int score, bool bAllowNegativeScore );
 	virtual bool			BumpWeapon( CBaseCombatWeapon *pWeapon );
+	int						GetPrimaryWeaponAmmoType(); //TERO: added for HE
 	bool					RemovePlayerItem( CBaseCombatWeapon *pItem );
 	CBaseEntity				*HasNamedPlayerItem( const char *pszItemName );
 	bool 					HasWeapons( void );// do I have ANY weapons?
@@ -550,6 +552,7 @@ public:
 	virtual void			PickupObject( CBaseEntity *pObject, bool bLimitMassAndSize = true ) {}
 	virtual void			ForceDropOfCarriedPhysObjects( CBaseEntity *pOnlyIfHoldindThis = NULL ) {}
 	virtual float			GetHeldObjectMass( IPhysicsObject *pHeldObject );
+	virtual CBaseEntity		*GetHeldObject( void );
 
 	void					CheckSuitUpdate();
 	void					SetSuitUpdate(const char *name, int fgroup, int iNoRepeat);
@@ -604,6 +607,7 @@ public:
 
 	virtual void DoMuzzleFlash();
 
+	CNavArea *GetLastKnownArea( void ) const		{ return m_lastNavArea; }		// return the last nav area the player occupied - NULL if unknown
 	const char *GetLastKnownPlaceName( void ) const	{ return m_szLastPlaceName; }	// return the last nav place name the player occupied
 
 	virtual void			CheckChatText( char *p, int bufsize ) {}
@@ -692,6 +696,7 @@ public:
 
 	void	SetArmorValue( int value );
 	void	IncrementArmorValue( int nCount, int nMaxValue = -1 );
+	void	DecrementArmorValue( int nCount );
 
 	void	SetConnected( PlayerConnectedState iConnected ) { m_iConnected = iConnected; }
 	virtual void EquipSuit( bool bPlayEffects = true );
@@ -727,7 +732,7 @@ public:
 	float	GetTimeBase() const;
 	void	SetLastUserCommand( const CUserCmd &cmd );
 	const CUserCmd *GetLastUserCommand( void );
-	
+
 	virtual bool IsBot() const;		// IMPORTANT: This returns true for ANY type of bot. If your game uses different, incompatible types of bots check your specific bot type before casting
 	virtual bool IsBotOfType( int botType ) const;	// return true if this player is a bot of the specific type (zero is invalid)
 	virtual int GetBotType( void ) const;			// return a unique int representing the type of bot instance this is
@@ -773,6 +778,9 @@ public:
 	// Here so that derived classes can use the expresser
 	virtual CAI_Expresser *GetExpresser() { return NULL; };
 
+	void					IncrementEFNoInterpParity();
+	int						GetEFNoInterpParity() const;
+
 #if !defined(NO_STEAM)
 	//----------------------------
 	// Steam handling
@@ -803,9 +811,9 @@ public:
 	}
 
 private:
-	// How much of a movement time buffer can we process from this user?
+    // How much of a movement time buffer can we process from this user?
 	float				m_flMovementTimeForUserCmdProcessingRemaining;
-
+	
 	// For queueing up CUserCmds and running them from PhysicsSimulate
 	int					GetCommandContextCount( void ) const;
 	CCommandContext		*GetCommandContext( int index );
@@ -819,9 +827,9 @@ private:
 	void				AdjustPlayerTimeBase( int simulation_ticks );
 
 public:
+
+
 	
-
-
 	// Used by gamemovement to check if the entity is stuck.
 	int m_StuckLast;
 	
@@ -903,7 +911,7 @@ protected:
 								float& zNear, float& zFar, float& fov );
 	void					CalcObserverView( Vector& eyeOrigin, QAngle& eyeAngles, float& fov );
 	void					CalcViewModelView( const Vector& eyeOrigin, const QAngle& eyeAngles);
-
+         
 	virtual	void			Internal_HandleMapEvent( inputdata_t &inputdata ){}
 
 	// FIXME: Make these private! (tf_player uses them)
@@ -1160,6 +1168,8 @@ protected:
 	Vector m_vecPreviouslyPredictedOrigin; // Used to determine if non-gamemovement game code has teleported, or tweaked the player's origin
 	int		m_nBodyPitchPoseParam;
 
+	// last known navigation area of player - NULL if unknown
+	CNavArea *m_lastNavArea;
 	CNetworkString( m_szLastPlaceName, MAX_PLACE_NAME_LENGTH );
 
 	char m_szNetworkIDString[MAX_NETWORKID_LENGTH];
@@ -1174,6 +1184,8 @@ protected:
 
 	bool			m_bSinglePlayerGameEnding;
 
+	CNetworkVar( int, m_ubEFNoInterpParity );
+
 public:
 
 	float  GetLaggedMovementValue( void ){ return m_flLaggedMovementValue;	}
@@ -1183,7 +1195,7 @@ public:
 	inline void DisableAutoKick( bool disabled );
 
 	void	DumpPerfToRecipient( CBasePlayer *pRecipient, int nMaxRecords );
-	// NVNT returns true if user has a haptic device
+// NVNT returns true if user has a haptic device
 	virtual bool HasHaptics(){return m_bhasHaptics;}
 	// NVNT sets weather a user should receive haptic device messages.
 	virtual void SetHaptics(bool has) { m_bhasHaptics = has;}
@@ -1207,10 +1219,14 @@ private:
 
 	IntervalTimer m_weaponFiredTimer;
 
+	//Human Error weapon bumping hints:
+	float	m_flNextWeaponDropHintTime;
+	int		m_iLastWeaponBumpSlot;
 	// Store the last time we successfully processed a usercommand
 	float			m_flLastUserCommandTime;
 
 public:
+	CBaseCombatWeapon *HLSS_GetWeaponToDrop();
 	virtual unsigned int PlayerSolidMask( bool brushOnly = false ) const;	// returns the solid mask for the given player, so bots can have a more-restrictive set
 
 };
@@ -1381,27 +1397,27 @@ inline const CBasePlayer *ToBasePlayer( const CBaseEntity *pEntity )
 template < typename Functor >
 bool ForEachPlayer( Functor &func )
 {
-	for( int i=1; i<=gpGlobals->maxClients; ++i )
-	{
-		CBasePlayer *player = static_cast<CBasePlayer *>( UTIL_PlayerByIndex( i ) );
+        for( int i=1; i<=gpGlobals->maxClients; ++i )
+        {
+                CBasePlayer *player = static_cast<CBasePlayer *>( UTIL_PlayerByIndex( i ) );
 
-		if (player == NULL)
-			continue;
+                if (player == NULL)
+                        continue;
 
-		if (FNullEnt( player->edict() ))
-			continue;
+                if (FNullEnt( player->edict() ))
+                        continue;
 
-		if (!player->IsPlayer())
-			continue;
+                if (!player->IsPlayer())
+                        continue;
 
-		if( !player->IsConnected() )
-			continue;
+				if( !player->IsConnected() )
+			            continue;
 
-		if (func( player ) == false)
-			return false;
-	}
+                if (func( player ) == false)
+                        return false;
+        }
 
-	return true;
+        return true;
 }
 
 

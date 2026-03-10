@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: A shotgun.
 //
@@ -18,6 +18,7 @@
 #include "soundent.h"
 #include "vstdlib/random.h"
 #include "gamestats.h"
+#include "Human_Error/hlss_weapon_id.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -29,6 +30,8 @@ class CWeaponShotgun : public CBaseHLCombatWeapon
 {
 	DECLARE_DATADESC();
 public:
+	virtual const int		HLSS_GetWeaponId() { return HLSS_WEAPON_ID_SHOTGUN; }
+
 	DECLARE_CLASS( CWeaponShotgun, CBaseHLCombatWeapon );
 
 	DECLARE_SERVERCLASS();

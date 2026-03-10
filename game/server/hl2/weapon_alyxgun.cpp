@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:
 //
@@ -10,6 +10,9 @@
 #include "npcevent.h"
 #include "ai_basenpc.h"
 #include "globalstate.h"
+#include "weapon_flaregun.h"
+#include "rumble_shared.h"
+#include "gamestats.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -104,6 +107,9 @@ CWeaponAlyxGun::CWeaponAlyxGun( )
 	m_fMinRange1		= 60;
 	m_fMaxRange1		= 2048;
 #endif//HL2_EPISODIC
+
+	m_iFireMode = FIREMODE_3RNDBURST;
+	m_iSecondaryAmmoType = -1;
 }
 
 CWeaponAlyxGun::~CWeaponAlyxGun( )
@@ -299,10 +305,15 @@ bool IsAlyxInInjuredMode( void )
 const Vector& CWeaponAlyxGun::GetBulletSpread( void )
 {
 	static const Vector cone = VECTOR_CONE_2DEGREES;
-	static const Vector injuredCone = VECTOR_CONE_6DEGREES;
+	static const Vector autoCone = VECTOR_CONE_6DEGREES;
 
-	if ( IsAlyxInInjuredMode() )
-		return injuredCone;
+	/*if ( IsAlyxInInjuredMode() )
+		return injuredCone;*/
+
+	if (m_iFireMode == FIREMODE_FULLAUTO)
+	{
+		return autoCone;
+	}
 
 	return cone;
 }
@@ -324,3 +335,102 @@ float CWeaponAlyxGun::GetMaxRestTime( void )
 
 	return BaseClass::GetMaxRestTime();
 }
+
+
+/*void CWeaponAlyxGun::SecondaryAttack( void )
+{
+	BaseClass::SecondaryAttack();	
+
+	CBasePlayer *pOwner = ToBasePlayer( GetOwner() );
+	
+	if ( pOwner == NULL )
+		return;
+
+	if ( ( pOwner->GetAmmoCount( m_iSecondaryAmmoType ) <= 0 ) || ( pOwner->GetWaterLevel() == 3 ) )
+	{
+		return;
+	}
+
+	CFlare *pFlare = CFlare::Create( pOwner->Weapon_ShootPosition(), pOwner->EyeAngles(), pOwner, FLARE_DURATION );
+
+	if ( pFlare == NULL )
+		return;
+
+	// Can blow up after a short delay (so have time to release mouse button)
+	m_flNextSecondaryAttack = gpGlobals->curtime + 1.0f;
+
+	Vector forward;
+	pOwner->EyeVectors( &forward );
+
+	pFlare->SetAbsVelocity( forward * 1500 );
+
+	WeaponSound( SPECIAL1 );
+
+	// Decrease ammo
+	pOwner->RemoveAmmo( 1, m_iSecondaryAmmoType );
+	//pOwner->RumbleEffect( RUMBLE_357, 0, RUMBLE_FLAGS_NONE );
+
+	m_iSecondaryAttacks++;
+	gamestats->Event_WeaponFired( pOwner, false, GetClassname() );
+}*/
+
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+bool CWeaponAlyxGun::Reload( void )
+{
+	bool fRet;
+	float fCacheTime = m_flNextSecondaryAttack;
+
+	fRet = DefaultReload( GetMaxClip1(), GetMaxClip2(), ACT_VM_RELOAD );
+	if ( fRet )
+	{
+		// Undo whatever the reload process has done to our secondary
+		// attack timer. We allow you to interrupt reloading to fire
+		// a grenade.
+		m_flNextSecondaryAttack = GetOwner()->m_flNextAttack = fCacheTime;
+
+		WeaponSound( RELOAD );
+	}
+
+	return fRet;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//
+//
+//-----------------------------------------------------------------------------
+void CWeaponAlyxGun::SecondaryAttack( void )
+{
+	// change fire modes.
+
+	switch( m_iFireMode )
+	{
+	case FIREMODE_FULLAUTO:
+		//Msg( "Burst\n" );
+		m_iFireMode = FIREMODE_3RNDBURST;
+		m_iSecondaryAmmoType = -1;
+		WeaponSound(SPECIAL2);
+		break;
+
+	case FIREMODE_3RNDBURST:
+		//Msg( "Auto\n" );
+		m_iFireMode = FIREMODE_FULLAUTO;
+		m_iSecondaryAmmoType = -2;
+		WeaponSound(SPECIAL1);
+		break;
+	}
+	
+	SendWeaponAnim( GetSecondaryAttackActivity() );
+
+	m_flNextSecondaryAttack = GetOwner()->m_flNextAttack = gpGlobals->curtime + 0.5;
+	m_flNextPrimaryAttack	= gpGlobals->curtime + 0.5f;
+
+	CBasePlayer *pOwner = ToBasePlayer( GetOwner() );
+	if ( pOwner )
+	{
+		m_iSecondaryAttacks++;
+		gamestats->Event_WeaponFired( pOwner, false, GetClassname() );
+	}
+}
+

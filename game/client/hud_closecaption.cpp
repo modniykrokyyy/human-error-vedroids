@@ -45,6 +45,17 @@ static ConVar cc_smallfontlength( "cc_smallfontlength", "300", 0, "If text strea
 #define CAPTION_PAN_FADE_TIME		0.5			// The time it takes for a line to fade while panning over a large entry
 #define CAPTION_PAN_SLIDE_TIME		0.5			// The time it takes for a line to slide on while panning over a large entry
 
+//-----------------------------------------------------------------------------
+// Purpose: Helper for sentence.cpp
+// Input  : *ansi - 
+//			*unicode - 
+//			unicodeBufferSize - 
+// Output : int
+//-----------------------------------------------------------------------------
+int ConvertANSIToUnicode(const char *ansi, wchar_t *unicode, int unicodeBufferSize)
+{
+	return g_pVGuiLocalize->ConvertANSIToUnicode( ansi, unicode, unicodeBufferSize );
+}
 
 // A work unit is a pre-processed chunk of CC text to display
 // Any state changes (font/color/etc) cause a new work unit to be precomputed
@@ -543,7 +554,7 @@ struct AsyncCaptionData_t
 		data->m_nBlockNum = params.blocktoload;
 		data->m_nFileIndex = params.fileindex;
 		data->m_nBlockSize = params.blocksize;
-		data->m_pBlockData = new byte[ data->m_nBlockSize * sizeof(ucs2) ];
+		data->m_pBlockData = new byte[ data->m_nBlockSize ];
 		return data;
 	}
 
@@ -684,6 +695,7 @@ public:
 			char fn[ 256 ];
 			Q_strncpy( fn, dbname, sizeof( fn ) );
 			Q_FixSlashes( fn );
+			Q_strlower( fn );
 
 			asynccaptionparams_t params;
 			params.dbfile		= fn;
@@ -752,6 +764,7 @@ public:
 		char fn[ 256 ];
 		Q_strncpy( fn, dbname, sizeof( fn ) );
 		Q_FixSlashes( fn );
+		Q_strlower( fn );
 
 		asynccaptionparams_t params;
 		params.dbfile		= fn;
@@ -819,8 +832,6 @@ CHudCloseCaption::CHudCloseCaption( const char *pElementName )
 {
 	vgui::Panel *pParent = g_pClientMode->GetViewport();
 	SetParent( pParent );
-
-	SetProportional( true );
 
 	m_nGoalHeight = 0;
 	m_nCurrentHeight = 0;
@@ -1016,7 +1027,7 @@ void CHudCloseCaption::Paint( void )
 	float desiredAlpha = visibleitems.Count() >= 1 ? 1.0f : 0.0f;
 
 	// Always return at least one line height for drawing the surrounding box
-	totalheight = MAX( totalheight, m_nLineHeight ); 
+	totalheight = max( totalheight, m_nLineHeight ); 
 
 	// Trigger box growing
 	if ( totalheight != m_nGoalHeight )
@@ -1072,7 +1083,7 @@ void CHudCloseCaption::Paint( void )
  
 	Color bgColor = GetBgColor();
    	bgColor[3] = m_flBackgroundAlpha;
-	DrawBox( rcText.left, MAX(rcText.top,0), rcText.right - rcText.left, rcText.bottom - MAX(rcText.top,0), bgColor, m_flCurrentAlpha );
+	DrawBox( rcText.left, max(rcText.top,0), rcText.right - rcText.left, rcText.bottom - max(rcText.top,0), bgColor, m_flCurrentAlpha );
 
 	if ( !visibleitems.Count() )
 	{
@@ -1104,7 +1115,7 @@ void CHudCloseCaption::Paint( void )
 			{
 				float ttl = si->item->GetTimeToLive();
 				ttl -= si->item->GetAddedTime();
-				ttl = MAX( 0.0f, ttl );
+				ttl = max( 0.0f, ttl );
 				si->item->SetTimeToLive( ttl );
 				si->item->SetAddedTime( 0.0f );
 			}
@@ -1139,7 +1150,7 @@ void CHudCloseCaption::Paint( void )
  			float flCurMove = item->GetInitialLifeSpan() - item->GetTimeToLive();
  			int iHeightToMove = 0;
 
- 			int iLinesToMove = clamp( Floor2Int( flCurMove / flMoveDelta ), 0, units );
+ 			int iLinesToMove = clamp( floor( flCurMove / flMoveDelta ), 0, units );
 			if ( iLinesToMove )
 			{
  				int iCurrentLineHeight = 0;
@@ -1166,12 +1177,12 @@ void CHudCloseCaption::Paint( void )
 
 					// Fade out quickly
 					float flFadeTime = (gpGlobals->curtime - wu->GetFadeStart()) /  CAPTION_PAN_FADE_TIME;
-					flFadeLineAlpha = clamp( 1.0f - flFadeTime, 0.f, 1.f );
+					flFadeLineAlpha = clamp( 1.0 - flFadeTime, 0, 1 );
 				}
 				else if ( flTimePostMove < (CAPTION_PAN_FADE_TIME+CAPTION_PAN_SLIDE_TIME) )
 				{
 					flTimePostMove -= CAPTION_PAN_FADE_TIME;
- 					float flSlideTime = clamp( flTimePostMove / 0.25f, 0.f, 1.f );
+ 					float flSlideTime = clamp( flTimePostMove / 0.25, 0, 1 );
  					iHeightToMove += ceil((iCurrentLineHeight - iHeightToMove) * flSlideTime);
 				}
 				else
@@ -1237,7 +1248,7 @@ void CHudCloseCaption::OnTick( void )
 		if ( predisplay > 0.0f )
 		{
 			predisplay -= dt;
-			predisplay = MAX( 0.0f, predisplay );
+			predisplay = max( 0.0f, predisplay );
 			item->SetPreDisplayTime( predisplay );
 		}
 		else
@@ -1245,7 +1256,7 @@ void CHudCloseCaption::OnTick( void )
 			// remove time from actual playback
 			float ttl = item->GetTimeToLive();
 			ttl -= dt;
-			ttl = MAX( 0.0f, ttl );
+			ttl = max( 0.0f, ttl );
 			item->SetTimeToLive( ttl );
 		}
 	}
@@ -1493,7 +1504,7 @@ void CHudCloseCaption::Process( const wchar_t *stream, float duration, const cha
 			addedlife = prevlife - lifespan;
 		}
 
-		lifespan = MAX( lifespan, prevlife );
+		lifespan = max( lifespan, prevlife );
 	}
 	
 	float delay = 0.0f;
@@ -1537,7 +1548,7 @@ void CHudCloseCaption::Process( const wchar_t *stream, float duration, const cha
 				out = phrase;
 
 				// Delay must be positive
-				delay = MAX( 0.0f, (float)wcstod( args, NULL ) );
+				delay = max( 0.0f, (float)wcstod( args, NULL ) );
 
 				continue;
 			}
@@ -1577,20 +1588,20 @@ void CHudCloseCaption::CreateFonts( void )
 {
 	vgui::IScheme *pScheme = vgui::scheme()->GetIScheme( GetScheme() );
 
-	m_hFonts[CCFONT_NORMAL] = pScheme->GetFont( "CloseCaption_Normal", true );
+	m_hFonts[CCFONT_NORMAL] = pScheme->GetFont( "CloseCaption_Normal" );
 
 	if ( IsPC() )
 	{
-		m_hFonts[CCFONT_BOLD] = pScheme->GetFont( "CloseCaption_Bold", true );
-		m_hFonts[CCFONT_ITALIC] = pScheme->GetFont( "CloseCaption_Italic", true );
-		m_hFonts[CCFONT_ITALICBOLD] = pScheme->GetFont( "CloseCaption_BoldItalic", true );
+		m_hFonts[CCFONT_BOLD] = pScheme->GetFont( "CloseCaption_Bold" );
+		m_hFonts[CCFONT_ITALIC] = pScheme->GetFont( "CloseCaption_Italic" );
+		m_hFonts[CCFONT_ITALICBOLD] = pScheme->GetFont( "CloseCaption_BoldItalic" );
 	}
 	else
 	{
-		m_hFonts[CCFONT_SMALL] = pScheme->GetFont( "CloseCaption_Small", true );
+		m_hFonts[CCFONT_SMALL] = pScheme->GetFont( "CloseCaption_Small" );
 	}
 
-	m_nLineHeight = MAX( 6, vgui::surface()->GetFontTall( m_hFonts[ CCFONT_NORMAL ] ) );
+	m_nLineHeight = max( 6, vgui::surface()->GetFontTall( m_hFonts[ CCFONT_NORMAL ] ) );
 }
 
 struct WorkUnitParams
@@ -1658,12 +1669,7 @@ void CHudCloseCaption::AddWorkUnit( CCloseCaptionItem *item,
 {
 	params.Finalize( vgui::surface()->GetFontTall( params.font ) );
 
-#ifdef WIN32
 	if ( wcslen( params.stream ) > 0 )
-#else
-	// params.stream is still in ucs2 format here so just do a basic zero compare for length or just space
-	if ( ((uint16 *)params.stream)[0] != 0 && ((uint16 *)params.stream)[0] != 32  )		
-#endif
 	{
 		CCloseCaptionWorkUnit *wu = new CCloseCaptionWorkUnit();
 
@@ -1680,8 +1686,8 @@ void CHudCloseCaption::AddWorkUnit( CCloseCaptionItem *item,
 		int curheight = item->GetHeight();
 		int curwidth = item->GetWidth();
 
-		curheight = MAX( curheight, params.y + wu->GetHeight() );
-		curwidth = MAX( curwidth, params.x + params.width );
+		curheight = max( curheight, params.y + wu->GetHeight() );
+		curwidth = max( curwidth, params.x + params.width );
 
 		item->SetHeight( curheight );
 		item->SetWidth( curwidth );
@@ -1728,7 +1734,7 @@ void CHudCloseCaption::ComputeStreamWork( int available_width, CCloseCaptionItem
 				}
 				else
 				{
-					int r = 0, g = 0, b = 0;
+					int r, g, b;
 					Color newcolor;
 					if ( 3 == swscanf( args, L"%i,%i,%i", &r, &g, &b ) )
 					{
@@ -1751,7 +1757,7 @@ void CHudCloseCaption::ComputeStreamWork( int available_width, CCloseCaptionItem
 				{
 					// player and npc color selector
 					// e.g.,. 255,255,255:200,200,200
-					int pr = 0, pg = 0, pb = 0, nr = 0, ng = 0, nb = 0;
+					int pr, pg, pb, nr, ng, nb;
 					Color newcolor;
 					if ( 6 == swscanf( args, L"%i,%i,%i:%i,%i,%i", &pr, &pg, &pb, &nr, &ng, &nb ) )
 					{
@@ -2025,20 +2031,13 @@ public:
 				continue;
 
 			// Lookup the data
-			CaptionLookup_t &entry = directories[ caption->fileindex ].m_CaptionDirectory[ caption->dirindex ];
+			CaptionLookup_t &entry = directories[ nFileIndex ].m_CaptionDirectory[ caption->dirindex ];
 			if ( entry.blockNum != nBlockNum )
 				continue;
 
-
-#ifdef WIN32
 			const wchar_t *pIn = ( const wchar_t *)&pData->m_pBlockData[ entry.offset ];
 			caption->stream = new wchar_t[ entry.length >> 1 ];
 			memcpy( (void *)caption->stream, pIn, entry.length );
-#else
-			// we persist to disk as ucs2 so convert back to real unicode here
-			caption->stream = new wchar_t[ entry.length ];
-			V_UCS2ToUnicode( (ucs2 *)&pData->m_pBlockData[ entry.offset ], caption->stream, entry.length << 1 );
-#endif
 		}
 	}
 
@@ -2058,9 +2057,8 @@ public:
 		}
 	}
 
-	bool GetStream( OUT_Z_BYTECAP(bufSizeInBytes) wchar_t *buf, int bufSizeInBytes )
+	bool GetStream( wchar_t *buf, int bufSizeInBytes )
 	{
-		Assert( bufSizeInBytes >= sizeof(buf[0]) );
 		buf[ 0 ] = L'\0';
 
 		int c = m_Tokens.Count();
@@ -2139,7 +2137,7 @@ public:
 		int dc = directories.Count();
 		for ( i = 0; i < dc; ++i )
 		{
-			idx = directories[ i ].m_CaptionDirectory.Find( search );
+            idx = directories[ i ].m_CaptionDirectory.Find( search );
 			if ( idx == directories[ i ].m_CaptionDirectory.InvalidIndex() )
 				continue;
 
@@ -2566,7 +2564,7 @@ void CHudCloseCaption::InitCaptionDictionary( const char *dbfile )
 
 	g_AsyncCaptionResourceManager.Clear();
 
-	char searchPaths[4096];
+	char searchPaths[512];
 	filesystem->GetSearchPath( "GAME", true, searchPaths, sizeof( searchPaths ) );
 
 	for ( char *path = strtok( searchPaths, ";" ); path; path = strtok( NULL, ";" ) )
@@ -2580,6 +2578,7 @@ void CHudCloseCaption::InitCaptionDictionary( const char *dbfile )
 		char fullpath[MAX_PATH];
 		Q_snprintf( fullpath, sizeof( fullpath ), "%s%s", path, dbfile );
 		Q_FixSlashes( fullpath );
+		Q_strlower( fullpath );
 
 		if ( IsX360() )
 		{
@@ -2617,7 +2616,7 @@ void CHudCloseCaption::InitCaptionDictionary( const char *dbfile )
 
 			entry.m_CaptionDirectory.CopyArray( (const CaptionLookup_t *)dirbuffer.PeekGet(), entry.m_Header.directorysize );
 			entry.m_CaptionDirectory.RedoSort( true );
-
+			
 			entry.m_DataBaseFile = fullpath;
 		}
 	}
@@ -2707,7 +2706,7 @@ CON_COMMAND( cc_random, "Emits a random caption" )
 	int count = 1;
 	if ( args.ArgC() == 2 )
 	{
-		count = MAX( 1, atoi( args[ 1 ] ) );
+		count = max( 1, atoi( args[ 1 ] ) );
 	}
 	CHudCloseCaption *hudCloseCaption = GET_HUDELEMENT( CHudCloseCaption );
 	if ( hudCloseCaption )
@@ -2819,7 +2818,7 @@ CON_COMMAND( cc_findsound, "Searches for soundname which emits specified text." 
 void CHudCloseCaption::FindSound( char const *pchANSI )
 {
 	// Now do the searching
-	ucs2 stream[ 1024 ];
+	wchar_t stream[ 1024 ];
 	char streamANSI[ 1024 ];
 
 	for ( int i = 0 ; i < m_AsyncCaptions.Count(); ++i )
@@ -2844,6 +2843,7 @@ void CHudCloseCaption::FindSound( char const *pchANSI )
 			char fn[ 256 ];
 			Q_strncpy( fn, dbname, sizeof( fn ) );
 			Q_FixSlashes( fn );
+			Q_strlower( fn );
 
 			asynccaptionparams_t params;
 			params.dbfile		= fn;
@@ -2863,11 +2863,11 @@ void CHudCloseCaption::FindSound( char const *pchANSI )
 			}
 
 			// Now we have the data
-			const ucs2 *pIn = ( const ucs2 *)&block[ lu.offset ];
+			const wchar_t *pIn = ( const wchar_t *)&block[ lu.offset ];
 			Q_memcpy( (void *)stream, pIn, MIN( lu.length, sizeof( stream ) ) );
 
 			// Now search for search text
-			V_UCS2ToUTF8( stream, streamANSI, sizeof( streamANSI ) );
+			g_pVGuiLocalize->ConvertUnicodeToANSI( stream, streamANSI, sizeof( streamANSI ) );
 			streamANSI[ sizeof( streamANSI ) - 1 ] = 0;
 
 			if ( Q_stristr( streamANSI, pchANSI ) )

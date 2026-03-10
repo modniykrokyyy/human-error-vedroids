@@ -607,6 +607,7 @@ protected:
 
 	bool			m_bSentFreezeFrame;
 	float			m_flFreezeZOffset;
+	byte			m_ubEFNoInterpParity;
 
 	float			m_flNextAchievementAnnounceTime;
 

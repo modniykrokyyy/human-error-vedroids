@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: An entity that creates NPCs in the game. There are two types of NPC
 //			makers -- one which creates NPCs using a template NPC, and one which
@@ -17,6 +17,8 @@
 #include "mapentities.h"
 #include "IEffects.h"
 #include "props.h"
+
+#include "vehicle_base.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -95,6 +97,11 @@ BEGIN_DATADESC( CBaseNPCMaker )
 	DEFINE_INPUTFUNC( FIELD_INTEGER, "SetMaxLiveChildren", InputSetMaxLiveChildren ),
 	DEFINE_INPUTFUNC( FIELD_FLOAT,	 "SetSpawnFrequency", InputSetSpawnFrequency ),
 
+#ifdef HLSS_DEBUG_MONSTER_MAKER
+	DEFINE_INPUTFUNC( FIELD_VOID,	 "DebugInfo", InputDebugInfo ),
+#endif
+
+
 	// Outputs
 	DEFINE_OUTPUT( m_OnAllSpawned,		"OnAllSpawned" ),
 	DEFINE_OUTPUT( m_OnAllSpawnedDead,	"OnAllSpawnedDead" ),
@@ -107,6 +114,13 @@ BEGIN_DATADESC( CBaseNPCMaker )
 	DEFINE_FIELD( m_hIgnoreEntity, FIELD_EHANDLE ),
 	DEFINE_KEYFIELD( m_iszIngoreEnt, FIELD_STRING, "IgnoreEntity" ), 
 END_DATADESC()
+
+#ifdef HLSS_DEBUG_MONSTER_MAKER
+void CBaseNPCMaker::InputDebugInfo( inputdata_t &inputdata )
+{
+	DevMsg("monstermaker %s has %d live children\n", GetDebugName(), m_nLiveChildren);
+}
+#endif
 
 
 //-----------------------------------------------------------------------------
@@ -383,11 +397,6 @@ END_DATADESC()
 //-----------------------------------------------------------------------------
 CNPCMaker::CNPCMaker( void )
 {
-	m_strHintGroup = NULL_STRING;
-	m_RelationshipString = NULL_STRING;
-	m_ChildTargetName = NULL_STRING;
-	m_iszNPCClassname = NULL_STRING;
-	m_SquadName = NULL_STRING;
 	m_spawnEquipment = NULL_STRING;
 }
 
@@ -671,7 +680,20 @@ CNPCSpawnDestination *CTemplateNPCMaker::FindSpawnDestination()
 				Vector vecTopOfHull = NAI_Hull::Maxs( HULL_HUMAN );
 				vecTopOfHull.x = 0;
 				vecTopOfHull.y = 0;
-				bool fVisible = (pPlayer->FVisible( vecTest ) || pPlayer->FVisible( vecTest + vecTopOfHull ) );
+
+				bool fVisible;
+
+				if (pPlayer->GetVehicle() && pPlayer->GetVehicle()->GetVehicleEnt())
+				{
+					fVisible = (pPlayer->GetVehicle()->GetVehicleEnt()->FVisible( vecTest ) || pPlayer->GetVehicle()->GetVehicleEnt()->FVisible( vecTest + vecTopOfHull ) );
+				}
+				else
+				{
+					fVisible = (pPlayer->FVisible( vecTest ) || pPlayer->FVisible( vecTest + vecTopOfHull ) );
+				}
+
+				//TERO: old
+				//bool fVisible = (pPlayer->FVisible( vecTest ) || pPlayer->FVisible( vecTest + vecTopOfHull ) );
 
 				if( m_CriterionVisibility == TS_YN_YES )
 				{

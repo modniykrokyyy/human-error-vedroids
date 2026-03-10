@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -22,6 +22,8 @@
 #include "beam_shared.h"
 #include "props.h"
 #include "particle_parse.h"
+#include "hl2_gamerules.h"
+#include "in_buttons.h"
 
 #ifdef PORTAL
 	#include "prop_portal_shared.h"
@@ -37,6 +39,8 @@ const char *GetMassEquivalent(float flMass);
 
 //Debug visualization
 ConVar	g_debug_turret( "g_debug_turret", "0" );
+
+ConVar hlss_carry_turrets("hlss_carry_turrets", "1" );
 
 extern ConVar physcannon_tracelength;
 
@@ -111,6 +115,9 @@ BEGIN_DATADESC( CNPC_FloorTurret )
 	DEFINE_FIELD( m_bHackedByAlyx, FIELD_BOOLEAN ),
 
 	DEFINE_KEYFIELD( m_iKeySkin, FIELD_INTEGER, "SkinNumber" ),
+
+	//TERO:
+	DEFINE_FIELD( m_flCarryClickTime, FIELD_TIME ),
 	
 	DEFINE_THINKFUNC( Retire ),
 	DEFINE_THINKFUNC( Deploy ),
@@ -133,6 +140,7 @@ BEGIN_DATADESC( CNPC_FloorTurret )
 	DEFINE_INPUTFUNC( FIELD_VOID, "DepleteAmmo", InputDepleteAmmo ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "RestoreAmmo", InputRestoreAmmo ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "SelfDestruct", InputSelfDestruct ),
+	DEFINE_INPUTFUNC( FIELD_VOID, "MakeBreakable", InputMakeBreakable ),
 
 	DEFINE_OUTPUT( m_OnDeploy, "OnDeploy" ),
 	DEFINE_OUTPUT( m_OnRetire, "OnRetire" ),
@@ -168,11 +176,28 @@ CNPC_FloorTurret::CNPC_FloorTurret( void ) :
 	m_flThrashTime( 0.0f ),
 	m_pMotionController( NULL ),
 	m_bEnabled( false ),
-	m_bSelfDestructing( false )
+	m_bSelfDestructing( false ),
+	m_flCarryClickTime( 0 )
 {
 	m_vecGoalAngles.Init();
 
 	m_vecEnemyLKP = vec3_invalid;
+}
+
+int CNPC_FloorTurret::GetBreakableTurretHealth( void )
+{
+	switch (g_pGameRules->GetSkillLevel())
+	{
+	case SKILL_HARD:
+		return 100;
+		break;
+	case SKILL_MEDIUM:
+		return 120;
+		break;
+	default:
+		return 140;
+		break;
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -184,12 +209,22 @@ Class_T	CNPC_FloorTurret::Classify( void )
 	{
 		// Hacked or friendly turrets don't attack players
 		if( m_bHackedByAlyx || IsCitizenTurret() )
-			return CLASS_PLAYER_ALLY;
+			return CLASS_CITIZEN_REBEL;	//TERO: used to say CLASS_PLAYER_ALLY
 
 		return CLASS_COMBINE;
 	}
 
 	return CLASS_NONE;
+}
+
+Disposition_t CNPC_FloorTurret::IRelationType( CBaseEntity *pTarget )
+{
+	if (pTarget->Classify() == CLASS_BEE)
+	{
+		return D_HT;
+	}
+
+	return BaseClass::IRelationType( pTarget );
 }
 
 //-----------------------------------------------------------------------------
@@ -301,9 +336,11 @@ void CNPC_FloorTurret::Spawn( void )
 	m_HackedGunPos	= Vector( 0, 0, 12.75 );
 	SetViewOffset( EyeOffset( ACT_IDLE ) );
 	m_flFieldOfView	= 0.4f; // 60 degrees
+
 	m_takedamage	= DAMAGE_EVENTS_ONLY;
-	m_iHealth		= 100;
-	m_iMaxHealth	= 100;
+	
+	m_iHealth		= CNPC_FloorTurret::GetBreakableTurretHealth();
+	m_iMaxHealth	= m_iHealth;
 
 	AddEFlags( EFL_NO_DISSOLVE );
 
@@ -340,6 +377,8 @@ void CNPC_FloorTurret::Spawn( void )
 		SetThink( &CNPC_FloorTurret::DisabledThink );
 		SetEyeState( TURRET_EYE_DISABLED );
 	}
+
+	CapabilitiesAdd( bits_CAP_FRIENDLY_DMG_IMMUNE );
 
 	//Stagger our starting times
 	SetNextThink( gpGlobals->curtime + random->RandomFloat( 0.1f, 0.3f ) );
@@ -1220,7 +1259,11 @@ bool CNPC_FloorTurret::CanBeAnEnemyOf( CBaseEntity *pEnemy )
 	// If we're out of ammo, make friendly companions ignore us
 	if ( m_spawnflags & SF_FLOOR_TURRET_OUT_OF_AMMO )
 	{
-		if ( pEnemy->Classify() == CLASS_PLAYER_ALLY_VITAL )
+		if ( pEnemy->Classify() == CLASS_CITIZEN_REBEL ||
+			 pEnemy->Classify() == CLASS_VORTIGAUNT || 
+			 pEnemy->Classify() == CLASS_ALIENGRUNT ||
+			 pEnemy->Classify() == CLASS_ALIENCONTROLLER ||
+			 CLASS_PLAYER_ALLY_VITAL ) //TERO: because turrets can be hacked
 			return false;
 	} 
 
@@ -1236,6 +1279,8 @@ bool CNPC_FloorTurret::CanBeAnEnemyOf( CBaseEntity *pEnemy )
 //-----------------------------------------------------------------------------
 void CNPC_FloorTurret::TippedThink( void )
 {
+	CheckUseHold();
+
 	// Update our PVS state
 	CheckPVSCondition();
 
@@ -1345,6 +1390,8 @@ void CNPC_FloorTurret::TippedThink( void )
 //-----------------------------------------------------------------------------
 void CNPC_FloorTurret::InactiveThink( void )
 {
+	CheckUseHold();
+
 	// Update our PVS state
 	CheckPVSCondition();
 
@@ -1401,6 +1448,8 @@ void CNPC_FloorTurret::ReturnToLife( void )
 //-----------------------------------------------------------------------------
 void CNPC_FloorTurret::DisabledThink( void )
 {
+	CheckUseHold();
+
 	SetNextThink( gpGlobals->curtime + 0.5 );
 	if ( OnSide() )
 	{
@@ -1437,12 +1486,33 @@ inline bool CNPC_FloorTurret::OnSide( void )
 	return ( DotProduct( up, Vector(0,0,1) ) < 0.5f );
 }
 
+void CNPC_FloorTurret::CheckUseHold( void )
+{
+	if ( CanBeCarried() )
+	{
+		CBasePlayer *pPlayer = UTIL_PlayerByIndex(1);
+		if ( pPlayer )
+		{
+			if ( m_flCarryClickTime != 0 && pPlayer->m_nButtons & IN_USE )
+			{
+				CarryTurret( pPlayer );
+			}
+			else
+			{
+				m_flCarryClickTime = 0;
+			}
+		}
+	}
+}
+
 //-----------------------------------------------------------------------------
 // Purpose: Allows a generic think function before the others are called
 // Input  : state - which state the turret is currently in
 //-----------------------------------------------------------------------------
 bool CNPC_FloorTurret::PreThink( turretState_e state )
-{
+{	
+	CheckUseHold();
+
 	// Hack to disable turrets when ai is disabled
 	if ( CAI_BaseNPC::m_nDebugBits & bits_debugDisableAI )
 	{
@@ -1796,6 +1866,145 @@ void CNPC_FloorTurret::ToggleUse ( CBaseEntity *pActivator, CBaseEntity *pCaller
 	}
 }
 
+bool CNPC_FloorTurret::CanBeCarried( void )
+{
+	if (m_bHackedByAlyx || IsCitizenTurret())
+	{
+		return false;
+	}
+
+	if (hlss_carry_turrets.GetBool() && HasSpawnFlags( SF_FLOOR_TURRET_CAN_BE_CARRIED ))
+		return true;
+
+	return false;
+}
+
+bool CNPC_FloorTurret::CarryTurret(CBasePlayer *pPlayer)
+{
+	//TERO:
+	if ( CanBeCarried() && m_iHealth > 0)
+	{
+		if (m_flCarryClickTime > gpGlobals->curtime)
+		{
+			DevMsg("not time yet %f\n", gpGlobals->curtime - m_flCarryClickTime);
+
+			//m_flCarryClickTime = gpGlobals->curtime + 2.0f;
+
+			//UTIL_HudHintText( pPlayer, "#HLSS_TurretClick" );
+			return false;
+		}
+
+		m_flCarryClickTime = 0; //gpGlobals->curtime + 2.0f;
+
+		if (!pPlayer->Weapon_OwnsThisType("weapon_turret"))
+		{
+			CBaseCombatWeapon  *pNewWeapon = (CBaseCombatWeapon  *)CBaseEntity::Create( "weapon_turret", GetAbsOrigin(), GetLocalAngles(), pPlayer );
+
+			if (!pNewWeapon)
+			{
+				DevMsg("no weapon\n");
+				return false;
+			}
+
+			CBaseCombatWeapon *pSearch = NULL;
+
+			int iSlot = pNewWeapon->GetSlot();
+			if ( iSlot <= 2 )
+			{
+				for (int i=0; (i < pPlayer->WeaponCount() && !pSearch); i++)
+				{
+					pSearch = pPlayer->GetWeapon( i );
+
+					if (pSearch && iSlot == pSearch->GetSlot())
+					{
+						pPlayer->Weapon_Drop( pSearch, NULL, NULL);
+					}
+					else
+					{
+						pSearch = NULL;
+					}
+				}
+			}
+
+			pNewWeapon->CheckRespawn();
+
+			pNewWeapon->AddSolidFlags( FSOLID_NOT_SOLID );
+			pNewWeapon->AddEffects( EF_NODRAW );
+
+			pPlayer->Weapon_Equip( pNewWeapon );
+			if ( pPlayer->IsInAVehicle() )
+			{
+				pNewWeapon->Holster();
+			}
+			else
+			{
+				pPlayer->Weapon_Switch( pNewWeapon );
+			}
+
+			pNewWeapon->OnPickedUp( pPlayer );
+			if (HasSpawnFlags(SF_FLOOR_TURRET_BREAKABLE))
+			{
+				pNewWeapon->m_iHealth = m_iHealth;
+			}
+			else
+			{
+				pNewWeapon->m_iHealth = -1;
+			}
+				
+			StopSound( "NPC_FloorTurret.Move" );
+			StopSound( "NPC_FloorTurret.Alarm" );
+			StopSound( "NPC_FloorTurret.AlarmPing" );
+
+			SetThink( &CNPC_FloorTurret::SUB_Remove );
+			SetNextThink( gpGlobals->curtime + 0.1f );
+
+			AddEffects( EF_NODRAW );
+			m_iHealth = 0;
+
+			return true;
+
+			/*if ( pPlayer->BumpWeapon( pNewWeapon ) )
+			{
+				pNewWeapon->OnPickedUp( pPlayer );
+				if (HasSpawnFlags(SF_FLOOR_TURRET_BREAKABLE))
+				{
+					pNewWeapon->m_iHealth = m_iHealth;
+				}
+				else
+				{
+					pNewWeapon->m_iHealth = -1;
+				}
+				
+				StopSound( "NPC_FloorTurret.Move" );
+				StopSound( "NPC_FloorTurret.Alarm" );
+				StopSound( "NPC_FloorTurret.AlarmPing" );
+
+				UTIL_Remove( this );
+				DevMsg("succesful pick up\n");
+				return true;
+			}
+			else
+			{
+				// HLSS: If we dropped a weapon from a slot, but failed to replace it with this one
+				// take the old weapon back.
+				if (pSearch)
+				{
+					if (pPlayer->BumpWeapon( pSearch ))
+					{
+						pSearch->OnPickedUp( pPlayer );
+					}
+				}
+				//
+				DevMsg("couldn't pick up turret\n");
+
+				UTIL_Remove( pNewWeapon );
+			}*/
+		}
+	}
+
+	return false;
+}
+
 //-----------------------------------------------------------------------------
 // Purpose: Reduce physics forces from the front
 //-----------------------------------------------------------------------------
@@ -1835,25 +2044,37 @@ int CNPC_FloorTurret::OnTakeDamage( const CTakeDamageInfo &info )
 {
 	CTakeDamageInfo	newInfo = info;
 
-	if ( info.GetDamageType() & (DMG_SLASH|DMG_CLUB) )
+	Class_T myClass = CLASS_COMBINE;
+
+	if (m_bHackedByAlyx || IsCitizenTurret())
 	{
-		// Take extra force from melee hits
-		newInfo.ScaleDamageForce( 2.0f );
-		
-		// Disable our upright controller for some time
-		if ( m_pMotionController != NULL )
+		myClass = CLASS_CITIZEN_REBEL;
+	}
+
+	bool bHostile = (info.GetAttacker() && CBaseCombatCharacter::GetDefaultRelationshipDispositionBetweenClasses( info.GetAttacker()->Classify(), myClass ) == D_HT);
+
+	if (bHostile)
+	{
+		if ( info.GetDamageType() & (DMG_SLASH|DMG_CLUB) )
 		{
-			m_pMotionController->Suspend( 2.0f );
+			// Take extra force from melee hits
+			newInfo.ScaleDamageForce( 3.0f );	//used to ne 2.0f -TERO
+		
+			// Disable our upright controller for some time
+			if ( m_pMotionController != NULL )
+			{
+				m_pMotionController->Suspend( 2.0f );
+			}
 		}
-	}
-	else if ( info.GetDamageType() & DMG_BLAST )
-	{
-		newInfo.ScaleDamageForce( 2.0f );
-	}
-	else if ( (info.GetDamageType() & DMG_BULLET) && !(info.GetDamageType() & DMG_BUCKSHOT) )
-	{
-		// Bullets, but not buckshot, do extra push
-		newInfo.ScaleDamageForce( 2.5f );
+		else if ( info.GetDamageType() & DMG_BLAST )
+		{
+			newInfo.ScaleDamageForce( 3.0f );	//used to ne 2.0f -TERO
+		}
+		else if ( (info.GetDamageType() & DMG_BULLET) && !(info.GetDamageType() & DMG_BUCKSHOT) )
+		{
+			// Bullets, but not buckshot, do extra push
+			newInfo.ScaleDamageForce( 3.5f );	////used to ne 2.5f -TERO
+		}
 	}
 
 	// Manually apply vphysics because AI_BaseNPC takedamage doesn't call back to CBaseEntity OnTakeDamage
@@ -1866,6 +2087,18 @@ int CNPC_FloorTurret::OnTakeDamage( const CTakeDamageInfo &info )
 	if ( IsAlive() && m_bEnabled && m_bAutoStart && GetActivity() == ACT_FLOOR_TURRET_CLOSED_IDLE && m_bSelfDestructing == false )
 	{
 		SetThink( &CNPC_FloorTurret::Deploy );
+	}
+
+	//TERO: this next bit is added by me to make the turret breakable
+	if ( HasSpawnFlags( SF_FLOOR_TURRET_BREAKABLE ) && bHostile && !(info.GetDamageType() & DMG_CRUSH))
+	{
+
+		m_iHealth -= info.GetDamage();
+		if (!m_bSelfDestructing && m_iHealth < 0)
+		{
+			m_iHealth = 100;
+			SelfDestruct();
+		}
 	}
 
 	return BaseClass::OnTakeDamage( newInfo );
@@ -1927,8 +2160,8 @@ float CNPC_FloorTurret::GetAttackDamageScale( CBaseEntity *pVictim )
 		if ( pBCC->Classify() == CLASS_ANTLION )
 			return 2.0;
 			
-		if ( pBCC->Classify() == CLASS_COMBINE )
-			return 2.0;
+		//if ( pBCC->Classify() == CLASS_COMBINE )		//TERO: don't really want this for citizen's in HE, makes it too easy
+		//	return 2.0;
 	}
 
 	return BaseClass::GetAttackDamageScale( pVictim );
@@ -1949,7 +2182,9 @@ Vector CNPC_FloorTurret::GetAttackSpread( CBaseCombatWeapon *pWeapon, CBaseEntit
 			// Make me much more accurate
 			weaponProficiency = WEAPON_PROFICIENCY_PERFECT;
 		}
-		else if ( pTarget->Classify() == CLASS_COMBINE )
+		else if ( pTarget->Classify() == CLASS_CITIZEN_REBEL || 
+				  pTarget->Classify() == CLASS_ALIENGRUNT || 
+				  pTarget->Classify() == CLASS_VORTIGAUNT )					//TERO: the last two were added by me
 		{
 			// Make me more accurate
 			weaponProficiency = WEAPON_PROFICIENCY_VERY_GOOD;
@@ -2038,6 +2273,11 @@ void CNPC_FloorTurret::BreakThink( void )
 	// K-boom
 	RadiusDamage( CTakeDamageInfo( this, this, 15.0f, DMG_BLAST ), vecOrigin, (10*12), CLASS_NONE, this );
 
+	//TERO: these are added by me
+	StopSound( "NPC_FloorTurret.Move" );
+	StopSound( "NPC_FloorTurret.Alarm" );
+	StopSound( "NPC_FloorTurret.AlarmPing" );
+
 	EmitSound( "NPC_FloorTurret.Destruct" );
 
 	breakablepropparams_t params( GetAbsOrigin(), GetAbsAngles(), vec3_origin, RandomAngularImpulse( -800.0f, 800.0f ) );
@@ -2123,6 +2363,16 @@ void CNPC_FloorTurret::SelfDestructThink( void )
 //-----------------------------------------------------------------------------
 void CNPC_FloorTurret::InputSelfDestruct( inputdata_t &inputdata )
 {
+	SelfDestruct();
+}
+
+void CNPC_FloorTurret::InputMakeBreakable( inputdata_t &inputdata )
+{
+	AddSpawnFlags( SF_FLOOR_TURRET_BREAKABLE );
+}
+
+void CNPC_FloorTurret::SelfDestruct()
+{
 	// Ka-boom!
 	m_flDestructStartTime = gpGlobals->curtime;
 	m_flPingTime = gpGlobals->curtime;
@@ -2130,6 +2380,9 @@ void CNPC_FloorTurret::InputSelfDestruct( inputdata_t &inputdata )
 
 	SetThink( &CNPC_FloorTurret::SelfDestructThink );
 	SetNextThink( gpGlobals->curtime + 0.1f );
+
+	//TERO: add a danger sound to tell NPCs to get the fudge out
+	CSoundEnt::InsertSound( SOUND_DANGER, GetAbsOrigin(), 50, 4.0f, this, SOUNDENT_CHANNEL_REPEATED_DANGER, NULL );
 
 	// Create the dust effect in place
 	m_hFizzleEffect = (CParticleSystem *) CreateEntityByName( "info_particle_system" );

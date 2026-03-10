@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:		Flare gun (fffsssssssssss!!)
 //
@@ -244,7 +244,7 @@ void CFlare::Activate( void )
 //-----------------------------------------------------------------------------
 void CFlare::StartBurnSound( void )
 {
-	if ( m_pBurnSound == NULL )
+	if ( m_pBurnSound == NULL)
 	{
 		CPASAttenuationFilter filter( this );
 		m_pBurnSound = CSoundEnvelopeController::GetController().SoundCreate( 
@@ -319,8 +319,12 @@ void CFlare::FlareThink( void )
 		if ( ( deltaTime <= FLARE_DECAY_TIME ) && ( m_bFading == false ) )
 		{
 			m_bFading = true;
-			CSoundEnvelopeController::GetController().SoundChangePitch( m_pBurnSound, 60, deltaTime );
-			CSoundEnvelopeController::GetController().SoundFadeOut( m_pBurnSound, deltaTime );
+
+			if ( m_pBurnSound != NULL )
+			{
+				CSoundEnvelopeController::GetController().SoundChangePitch( m_pBurnSound, 60, deltaTime );
+				CSoundEnvelopeController::GetController().SoundFadeOut( m_pBurnSound, deltaTime );
+			}
 		}
 
 		// if flare is no longer bright, remove it from active flare list

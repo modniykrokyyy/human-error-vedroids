@@ -424,6 +424,7 @@ $Project
 		$File	"$SRCDIR\game\shared\rope_helpers.cpp"
 		$File	"$SRCDIR\game\shared\saverestore.cpp"
 		$File	"$SRCDIR\game\shared\sceneentity_shared.cpp"
+		$File	"ge_screeneffects.cpp"
 		$File	"ScreenSpaceEffects.cpp"
 		$File	"$SRCDIR\game\shared\sequence_Transitioner.cpp"
 		$File	"simple_keys.cpp"

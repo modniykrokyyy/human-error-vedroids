@@ -209,7 +209,7 @@ void SendProxy_OriginXY( const SendProp *pProp, const void *pStruct, const void 
 	CBaseEntity *entity = (CBaseEntity*)pStruct;
 	Assert( entity );
 
-	const Vector *v;
+const Vector *v;
 
 	if ( !entity->UseStepSimulationNetworkOrigin( &v ) )
 	{
@@ -267,7 +267,6 @@ IMPLEMENT_SERVERCLASS_ST_NOBASE( CBaseEntity, DT_BaseEntity )
 	SendPropVector	(SENDINFO(m_vecOrigin), -1,  SPROP_COORD|SPROP_CHANGES_OFTEN, 0.0f, HIGH_DEFAULT, SendProxy_Origin ),
 #endif
 
-	SendPropInt		(SENDINFO( m_ubInterpolationFrame ), NOINTERP_PARITY_MAX_BITS, SPROP_UNSIGNED ),
 	SendPropModelIndex(SENDINFO(m_nModelIndex)),
 	SendPropDataTable( SENDINFO_DT( m_Collision ), &REFERENCE_SEND_TABLE(DT_CollisionProperty) ),
 	SendPropInt		(SENDINFO(m_nRenderFX),		8, SPROP_UNSIGNED ),
@@ -302,12 +301,7 @@ IMPLEMENT_SERVERCLASS_ST_NOBASE( CBaseEntity, DT_BaseEntity )
 	SendPropInt		(SENDINFO(m_bAnimatedEveryTick),		1, SPROP_UNSIGNED ),
 	SendPropBool( SENDINFO( m_bAlternateSorting )),
 
-#ifdef TF_DLL
-	SendPropArray3( SENDINFO_ARRAY3(m_nModelIndexOverrides), SendPropInt( SENDINFO_ARRAY(m_nModelIndexOverrides), SP_MODEL_INDEX_BITS, 0 ) ),
-#endif
-
 END_SEND_TABLE()
-
 
 // dynamic models
 class CBaseEntityModelLoadProxy
@@ -386,11 +380,6 @@ CBaseEntity::CBaseEntity( bool bServerOnly )
 	SetSolid( SOLID_NONE );
 	ClearSolidFlags();
 
-	m_nModelIndex = 0;
-	m_bDynamicModelAllowed = false;
-	m_bDynamicModelPending = false;
-	m_bDynamicModelSetBounds = false;
-
 	SetMoveType( MOVETYPE_NONE );
 	SetOwnerEntity( NULL );
 	SetCheckUntouch( false );
@@ -441,9 +430,6 @@ CBaseEntity::~CBaseEntity( )
 	// case where friction sounds are added between the call to UpdateOnRemove + ~CBaseEntity
 	PhysCleanupFrictionSounds( this );
 
-	Assert( !IsDynamicModelIndex( m_nModelIndex ) );
-	Verify( !sg_DynamicLoadHandlers.Remove( this ) );
-
 	// In debug make sure that we don't call delete on an entity without setting
 	//  the disable flag first!
 	// EHANDLE accessors will check, in debug, for access to entities during destruction of
@@ -459,7 +445,6 @@ CBaseEntity::~CBaseEntity( )
 		g_bDisableEhandleAccess = false;
 		CBaseEntity::PhysicsRemoveTouchedList( this );
 		CBaseEntity::PhysicsRemoveGroundList( this );
-		SetGroundEntity( NULL ); // remove us from the ground entity if we are on it
 		DestroyAllDataObjects();
 		g_bDisableEhandleAccess = true;
 
@@ -587,7 +572,7 @@ void CBaseEntity::StopFollowingEntity( )
 {
 	if( !IsFollowingEntity() )
 	{
-//		Assert( IsEffectActive( EF_BONEMERGE ) == 0 );
+		Assert( IsEffectActive( EF_BONEMERGE ) == 0 );
 		return;
 	}
 
@@ -672,7 +657,7 @@ void CBaseEntity::SetModelIndexOverride( int index, int nValue )
 	}
 #endif
 }
-	  
+
 // position to shoot at
 Vector CBaseEntity::BodyTarget( const Vector &posSrc, bool bNoisy) 
 { 
@@ -1006,7 +991,7 @@ int CBaseEntity::DrawDebugTextOverlays(void)
 
 		if( m_iGlobalname != NULL_STRING )
 		{
-			Q_snprintf( tempstr, sizeof(tempstr), "GLOBALNAME: %s", STRING(m_iGlobalname) );
+			Q_snprintf( tempstr, sizeof(tempstr), "GLOBALNAME: %s", m_iGlobalname );
 			EntityText(offset,tempstr, 0);
 			offset++;
 		}
@@ -1352,18 +1337,16 @@ int CBaseEntity::TakeHealth( float flHealth, int bitsDamageType )
 	if ( !edict() || m_takedamage < DAMAGE_YES )
 		return 0;
 
-	int iMax = GetMaxHealth();
-
 // heal
-	if ( m_iHealth >= iMax )
+	if ( m_iHealth >= m_iMaxHealth )
 		return 0;
 
 	const int oldHealth = m_iHealth;
 
 	m_iHealth += flHealth;
 
-	if (m_iHealth > iMax)
-		m_iHealth = iMax;
+	if (m_iHealth > m_iMaxHealth)
+		m_iHealth = m_iMaxHealth;
 
 	return m_iHealth - oldHealth;
 }
@@ -1559,22 +1542,35 @@ int CBaseEntity::VPhysicsTakeDamage( const CTakeDamageInfo &info )
 		// setup the damage force & position inside the CTakeDamageInfo (Utility functions for this are in
 		// takedamageinfo.cpp. If you think the damage shouldn't cause force (unlikely!) then you can set the 
 		// damage type to DMG_GENERIC, or | DMG_CRUSH if you need to preserve the damage type for purposes of HUD display.
-#if !defined( TF_DLL )
 		Assert( force != vec3_origin && offset != vec3_origin );
-#else
-		// this was spamming the console for Payload maps in TF (trigger_hurt entity on the front of the cart)
-		if ( !TFGameRules() || TFGameRules()->GetGameType() != TF_GAMETYPE_ESCORT )
-		{
-			Assert( force != vec3_origin && offset != vec3_origin );
-		}
-#endif
 
 		unsigned short gameFlags = VPhysicsGetObject()->GetGameFlags();
 		if ( gameFlags & FVPHYSICS_PLAYER_HELD )
 		{
 			// if the player is holding the object, use it's real mass (player holding reduced the mass)
-			CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
-			if ( pPlayer )
+
+			CBasePlayer *pPlayer = NULL;
+			
+			if ( AI_IsSinglePlayer() )
+			{
+				pPlayer = UTIL_GetLocalPlayer();
+			}
+			else
+			{
+				// See which MP player is holding the physics object and then use that player to get the real mass of the object.
+				// This is ugly but better than having linkage between an object and its "holding" player.
+				for ( int i = 1; i <= gpGlobals->maxClients; i++ )
+				{
+					CBasePlayer *tempPlayer = UTIL_PlayerByIndex( i );
+					if ( tempPlayer && (tempPlayer->GetHeldObject() == this ) )
+					{
+						pPlayer = tempPlayer;
+						break;
+					}
+				}
+			}
+
+ 			if ( pPlayer )
 			{
 				float mass = pPlayer->GetHeldObjectMass( VPhysicsGetObject() );
 				if ( mass != 0.0f )
@@ -1675,11 +1671,7 @@ class CThinkContextsSaveDataOps : public CDefSaveRestoreOps
 		// Now write out all the functions
 		for ( int i = 0; i < pUtlVector->Size(); i++ )
 		{
-#ifdef WIN32
 			void **ppV = (void**)&((*pUtlVector)[i].m_pfnThink);
-#else
-			BASEPTR *ppV = &((*pUtlVector)[i].m_pfnThink);
-#endif
 			bool bHasFunc = (*ppV != NULL);
 			pSave->WriteBool( &bHasFunc, 1 );
 			if ( bHasFunc )
@@ -1948,11 +1940,6 @@ BEGIN_DATADESC_NO_BASE( CBaseEntity )
 
 	//DEFINE_FIELD( m_DamageModifiers, FIELD_?? ), // can't save?
 	// DEFINE_FIELD( m_fDataObjectTypes, FIELD_INTEGER ),
-
-#ifdef TF_DLL
-	DEFINE_ARRAY( m_nModelIndexOverrides, FIELD_INTEGER, MAX_VISION_MODES ),
-#endif
-
 END_DATADESC()
 
 // For code error checking
@@ -2043,17 +2030,6 @@ void CBaseEntity::UpdateOnRemove( void )
 	}
 
 	SetGroundEntity( NULL );
-
-	if ( m_bDynamicModelPending )
-	{
-		sg_DynamicLoadHandlers.Remove( this );
-	}
-	
-	if ( IsDynamicModelIndex( m_nModelIndex ) )
-	{
-		modelinfo->ReleaseDynamicModel( m_nModelIndex ); // no-op if not dynamic
-		m_nModelIndex = -1;
-	}
 }
 
 //-----------------------------------------------------------------------------
@@ -2603,7 +2579,7 @@ void CBaseEntity::PhysicsTouchTriggers( const Vector *pPrevAbsOrigin )
 		Assert(CollisionProp());
 		bool isTriggerCheckSolids = IsSolidFlagSet( FSOLID_TRIGGER );
 		bool isSolidCheckTriggers = IsSolid() && !isTriggerCheckSolids;		// NOTE: Moving triggers (items, ammo etc) are not 
-																			// checked against other triggers to reduce the number of touchlinks created
+																			// checked against other triggers ot reduce the number of touchlinks created
 		if ( !(isSolidCheckTriggers || isTriggerCheckSolids) )
 			return;
 
@@ -2972,7 +2948,7 @@ bool CBaseEntity::PassesDamageFilter( const CTakeDamageInfo &info )
 FORCEINLINE bool NamesMatch( const char *pszQuery, string_t nameToMatch )
 {
 	if ( nameToMatch == NULL_STRING )
-		return (!pszQuery || *pszQuery == 0 || *pszQuery == '*');
+		return (*pszQuery == 0 || *pszQuery == '*');
 
 	const char *pszNameToMatch = STRING(nameToMatch);
 
@@ -2982,16 +2958,9 @@ FORCEINLINE bool NamesMatch( const char *pszQuery, string_t nameToMatch )
 
 	while ( *pszNameToMatch && *pszQuery )
 	{
-		unsigned char cName = *pszNameToMatch;
-		unsigned char cQuery = *pszQuery;
-		// simple ascii case conversion
-		if ( cName == cQuery )
-			;
-		else if ( cName - 'A' <= (unsigned char)'Z' - 'A' && cName - 'A' + 'a' == cQuery )
-			;
-		else if ( cName - 'a' <= (unsigned char)'z' - 'a' && cName - 'a' + 'A' == cQuery )
-			;
-		else
+		char cName = *pszNameToMatch;
+		char cQuery = *pszQuery;
+		if ( cName != cQuery && tolower(cName) != tolower(cQuery) ) // people almost always use lowercase, so assume that first
 			break;
 		++pszNameToMatch;
 		++pszQuery;
@@ -3224,6 +3193,15 @@ int CBaseEntity::Restore( IRestore &restore )
 		m_hGroundEntity->AddEntityToGroundList( this );
 	}
 
+	// Tracker 22129
+	// This is a hack to make sure that the entity is added to the AddPostClientMessageEntity
+	//  list so that EF_NOINTERP can be cleared at the end of the frame.  Otherwise, a restored entity
+	//  with this flag will not interpolate until the next time the flag is set.  ywb
+	if ( IsEffectActive( EF_NOINTERP ) )
+	{
+		AddEffects( EF_NOINTERP );
+	}
+
 	return status;
 }
 
@@ -3244,19 +3222,6 @@ void CBaseEntity::OnSave( IEntitySaveUtils *pUtils )
 //-----------------------------------------------------------------------------
 void CBaseEntity::OnRestore()
 {
-#if defined( PORTAL ) || defined( HL2_EPISODIC ) || defined ( HL2_DLL ) || defined( HL2_LOSTCOAST )
-	// We had a short period during the 2013 beta where the FL_* flags had a bogus value near the top, so detect
-	// these bad saves and just give up. Only saves from the short beta period should have been effected.
-	if ( GetFlags() & FL_FAKECLIENT )
-	{
-		char szMsg[256];
-		V_snprintf( szMsg, sizeof(szMsg), "\nInvalid save, unable to load. Please run \"map %s\" to restart this level manually\n\n", gpGlobals->mapname.ToCStr() );
-		Msg( "%s", szMsg );
-		
-		engine->ServerCommand("wait;wait;disconnect;showconsole\n");
-	}
-#endif
-
 	SimThink_EntityChanged( this );
 
 	// touchlinks get recomputed
@@ -3365,7 +3330,7 @@ void CBaseEntity::FunctionCheck( void *pFunction, const char *name )
 	// Note, if you crash here and your class is using multiple inheritance, it is
 	// probably the case that CBaseEntity (or a descendant) is not the first
 	// class in your list of ancestors, which it must be.
-	if (pFunction && !UTIL_FunctionToName( GetDataDescMap(), *(inputfunc_t*)pFunction ) )
+	if (pFunction && !UTIL_FunctionToName( GetDataDescMap(), pFunction ) )
 	{
 		Warning( "FUNCTION NOT IN TABLE!: %s:%s (%08lx)\n", STRING(m_iClassname), name, (unsigned long)pFunction );
 		Assert(0);
@@ -3634,19 +3599,19 @@ void CBaseEntity::SetTransmit( CCheckTransmitInfo *pInfo, bool bAlways )
 
 	pInfo->m_pTransmitEdict->Set( index );
 
-	// HLTV/Replay need to know if this entity is culled by PVS limits
+	// HLTV needs to know if this entity is culled by PVS limits
 	if ( pInfo->m_pTransmitAlways )
 	{
-		// in HLTV/Replay mode always transmit entitys with move-parents
-		// HLTV/Replay can't resolve the mode-parents relationships 
+		// in HLTV mode always transmit entitys with move-parents
+		// HLTV can't resolve the mode-parents relationships 
 		if ( bAlways || pNetworkParent )
 		{
-			// tell HLTV/Replay that this entity is always transmitted
+			// tell HLTV that this entity is always transmitted
 			pInfo->m_pTransmitAlways->Set( index );
 		}
 		else 
 		{
-			// HLTV/Replay will PVS cull this entity, so update the 
+			// HLTV will PVS cull this entity, so update the 
 			// node/cluster infos if necessary
 			m_Network.RecomputePVSInformation();
 		}
@@ -3903,7 +3868,7 @@ bool CBaseEntity::AcceptInput( const char *szInputName, CBaseEntity *pActivator,
 					{
 						Q_snprintf( szBuffer, sizeof(szBuffer), "(%0.2f) input <NULL>: %s.%s(%s)\n", gpGlobals->curtime, GetDebugName(), szInputName, Value.String() );
 					}
-					DevMsg( 2, "%s", szBuffer );
+					DevMsg( 2, szBuffer );
 					ADD_DEBUG_HISTORY( HISTORY_ENTITY_IO, szBuffer );
 
 					if (m_debugOverlays & OVERLAY_MESSAGE_BIT)
@@ -4176,7 +4141,7 @@ void CBaseEntity::SetParentAttachment( const char *szInputName, const char *szAt
 
 	// Lookup the attachment
 	int iAttachment = pAnimating->LookupAttachment( szAttachment );
-	if ( iAttachment <= 0 )
+	if ( !iAttachment )
 	{
 		Warning("ERROR: Tried to %s for entity %s (%s), but it has no attachment named %s.\n", szInputName, GetClassname(), GetDebugName(), szAttachment );
 		return;
@@ -4305,6 +4270,19 @@ CStudioHdr *CBaseEntity::OnNewModel()
 	return NULL;
 }
 
+
+//-----------------------------------------------------------------------------
+// Purpose: Called once per frame after the server frame loop has finished and after all messages being
+//  sent to clients have been sent.  NOTE: Only called if scheduled via AddPostClientMessageEntity() !
+//-----------------------------------------------------------------------------
+void CBaseEntity::PostClientMessagesSent( void )
+{
+	// Remove nointerp flags from entity after every frame
+	if ( IsEffectActive( EF_NOINTERP ) )
+	{
+		RemoveEffects( EF_NOINTERP );
+	}
+}
 
 //================================================================================
 // TEAM HANDLING
@@ -4438,7 +4416,7 @@ static void TeleportEntity( CBaseEntity *pSourceEntity, TeleportListEntry_t &ent
 
 		if ( newPosition )
 		{
-			pTeleport->IncrementInterpolationFrame();
+			pTeleport->AddEffects( EF_NOINTERP );
 			UTIL_SetOrigin( pTeleport, *newPosition );
 		}
 	}
@@ -4522,17 +4500,6 @@ void CBaseEntity::Teleport( const Vector *newPosition, const QAngle *newAngles, 
 	for (i = 0; i < teleportList.Count(); i++)
 	{
 		teleportList[i].pEntity->CollisionRulesChanged();
-	}
-
-	if ( IsPlayer() )
-	{
-		// Tell the client being teleported
-		IGameEvent *event = gameeventmanager->CreateEvent( "base_player_teleported" );
-		if ( event )
-		{
-			event->SetInt( "entindex", entindex() );
-			gameeventmanager->FireEventClientSide( event );
-		}
 	}
 
 	Assert( g_TeleportStack[index] == this );
@@ -4904,7 +4871,7 @@ void CBaseEntity::PrecacheModelComponents( int nModelIndex )
 // Input  : *name - model name
 // Output : int -- model index for model
 //-----------------------------------------------------------------------------
-int CBaseEntity::PrecacheModel( const char *name, bool bPreload )
+int CBaseEntity::PrecacheModel( const char *name )
 {
 	if ( !name || !*name )
 	{
@@ -4928,7 +4895,7 @@ int CBaseEntity::PrecacheModel( const char *name, bool bPreload )
 	}
 #endif
 
-	int idx = engine->PrecacheModel( name, bPreload );
+	int idx = engine->PrecacheModel( name, true );
 	if ( idx != -1 )
 	{
 		PrecacheModelComponents( idx );
@@ -5161,7 +5128,6 @@ void CC_Find_Ent( const CCommand& args )
 {
 	if ( args.ArgC() < 2 )
 	{
-		Msg( "Total entities: %d (%d edicts)\n", gEntList.NumberOfEntities(), gEntList.NumberOfEdicts() );
 		Msg( "Format: find_ent <substring>\n" );
 		return;
 	}
@@ -5336,7 +5302,7 @@ public:
 		{
 			const char *target = "", *action = "Use";
 			variant_t value;
-			float delay = 0;
+			int delay = 0;
 
 			target = STRING( AllocPooledString(command.Arg( 1 ) ) );
 
@@ -5345,20 +5311,11 @@ public:
 			// people complained about users resetting the rcon password if the server briefly turned on cheats like this:
 			//    give point_servercommand
 			//    ent_fire point_servercommand command "rcon_password mynewpassword"
-			//
-			// Robin: Unfortunately, they get around point_servercommand checks with this:
-			//	  ent_create point_servercommand; ent_setname mine; ent_fire mine command "rcon_password mynewpassword"
-			// So, I'm removing the ability for anyone to execute ent_fires on dedicated servers (we can't check to see if
-			// this command is going to connect with a point_servercommand entity here, because they could delay the event and create it later).
-			if ( engine->IsDedicatedServer() )
+			if ( gpGlobals->maxClients > 1 && V_stricmp( target, "point_servercommand" ) == 0 )
 			{
-				// We allow people with disabled autokick to do it, because they already have rcon.
-				if ( pPlayer->IsAutoKickDisabled() == false )
+				if ( engine->IsDedicatedServer() )
 					return;
-			}
-			else if ( gpGlobals->maxClients > 1 )
-			{
-				// On listen servers with more than 1 player, only allow the host to issue ent_fires.
+					
 				CBasePlayer *pHostPlayer = UTIL_GetListenServerHost();
 				if ( pPlayer != pHostPlayer )
 					return;
@@ -5549,9 +5506,6 @@ static ConCommand ent_fire("ent_fire", &g_EntFireAutoComplete, "Usage:\n   ent_f
 
 void CC_Ent_CancelPendingEntFires( const CCommand& args )
 {
-	if ( !UTIL_IsCommandIssuedByServerAdmin() )
-		return;
-
 	CBasePlayer *pPlayer = ToBasePlayer( UTIL_GetCommandClient() );
 	if (!pPlayer)
 		return;
@@ -5862,8 +5816,6 @@ matrix3x4_t& CBaseEntity::GetParentToWorldTransform( matrix3x4_t &tempMatrix )
 
 	if ( m_iParentAttachment != 0 )
 	{
-		MDLCACHE_CRITICAL_SECTION();
-
 		CBaseAnimating *pAnimating = pMoveParent->GetBaseAnimating();
 		if ( pAnimating && pAnimating->GetAttachment( m_iParentAttachment, tempMatrix ) )
 		{
@@ -6031,27 +5983,17 @@ void CBaseEntity::SetAbsAngularVelocity( const QAngle &vecAbsAngVelocity )
 }
 */
 
+
 //-----------------------------------------------------------------------------
 // Methods that modify local physics state, and let us know to compute abs state later
 //-----------------------------------------------------------------------------
 void CBaseEntity::SetLocalOrigin( const Vector& origin )
 {
-	// Safety check against NaN's or really huge numbers
-	if ( !IsEntityPositionReasonable( origin ) )
+	if ( !origin.IsValid() )
 	{
-		if ( CheckEmitReasonablePhysicsSpew() )
-		{
-			Warning( "Bad SetLocalOrigin(%f,%f,%f) on %s\n", origin.x, origin.y, origin.z, GetDebugName() );
-		}
-		Assert( false );
+		AssertMsg( 0, "Bad origin set" );
 		return;
 	}
-
-//	if ( !origin.IsValid() )
-//	{
-//		AssertMsg( 0, "Bad origin set" );
-//		return;
-//	}
 
 	if (m_vecOrigin != origin)
 	{
@@ -6079,17 +6021,6 @@ void CBaseEntity::SetLocalAngles( const QAngle& angles )
 	//        handling things like +/-180 degrees properly. This should be revisited.
 	//QAngle angleNormalize( AngleNormalize( angles.x ), AngleNormalize( angles.y ), AngleNormalize( angles.z ) );
 
-	// Safety check against NaN's or really huge numbers
-	if ( !IsEntityQAngleReasonable( angles ) )
-	{
-		if ( CheckEmitReasonablePhysicsSpew() )
-		{
-			Warning( "Bad SetLocalAngles(%f,%f,%f) on %s\n", angles.x, angles.y, angles.z, GetDebugName() );
-		}
-		Assert( false );
-		return;
-	}
-
 	if (m_angRotation != angles)
 	{
 		InvalidatePhysicsRecursive( ANGLES_CHANGED );
@@ -6098,25 +6029,8 @@ void CBaseEntity::SetLocalAngles( const QAngle& angles )
 	}
 }
 
-void CBaseEntity::SetLocalVelocity( const Vector &inVecVelocity )
+void CBaseEntity::SetLocalVelocity( const Vector &vecVelocity )
 {
-	Vector vecVelocity = inVecVelocity;
-
-	// Safety check against receive a huge impulse, which can explode physics
-	switch ( CheckEntityVelocity( vecVelocity ) )
-	{
-		case -1:
-			Warning( "Discarding SetLocalVelocity(%f,%f,%f) on %s\n", vecVelocity.x, vecVelocity.y, vecVelocity.z, GetDebugName() );
-			Assert( false );
-			return;
-		case 0:
-			if ( CheckEmitReasonablePhysicsSpew() )
-			{
-				Warning( "Clamping SetLocalVelocity(%f,%f,%f) on %s\n", inVecVelocity.x, inVecVelocity.y, inVecVelocity.z, GetDebugName() );
-			}
-			break;
-	}
-
 	if (m_vecVelocity != vecVelocity)
 	{
 		InvalidatePhysicsRecursive( VELOCITY_CHANGED );
@@ -6126,17 +6040,6 @@ void CBaseEntity::SetLocalVelocity( const Vector &inVecVelocity )
 
 void CBaseEntity::SetLocalAngularVelocity( const QAngle &vecAngVelocity )
 {
-	// Safety check against NaN's or really huge numbers
-	if ( !IsEntityQAngleVelReasonable( vecAngVelocity ) )
-	{
-		if ( CheckEmitReasonablePhysicsSpew() )
-		{
-			Warning( "Bad SetLocalAngularVelocity(%f,%f,%f) on %s\n", vecAngVelocity.x, vecAngVelocity.y, vecAngVelocity.z, GetDebugName() );
-		}
-		Assert( false );
-		return;
-	}
-
 	if (m_vecAngVelocity != vecAngVelocity)
 	{
 //		InvalidatePhysicsRecursive( EFL_DIRTY_ABSANGVELOCITY );
@@ -7308,30 +7211,6 @@ void CC_Ent_Create( const CCommand& args )
 {
 	MDLCACHE_CRITICAL_SECTION();
 
-	CBasePlayer *pPlayer = UTIL_GetCommandClient();
-	if (!pPlayer)
-	{
-		return;
-	}
-
-	// Don't allow regular users to create point_servercommand entities for the same reason as blocking ent_fire
-	if ( !Q_stricmp( args[1], "point_servercommand" ) )
-	{
-		if ( engine->IsDedicatedServer() )
-		{
-			// We allow people with disabled autokick to do it, because they already have rcon.
-			if ( pPlayer->IsAutoKickDisabled() == false )
-				return;
-		}
-		else if ( gpGlobals->maxClients > 1 )
-		{
-			// On listen servers with more than 1 player, only allow the host to create point_servercommand.
-			CBasePlayer *pHostPlayer = UTIL_GetListenServerHost();
-			if ( pPlayer != pHostPlayer )
-				return;
-		}
-	}
-
 	bool allowPrecache = CBaseEntity::IsPrecacheAllowed();
 	CBaseEntity::SetAllowPrecache( true );
 
@@ -7340,18 +7219,9 @@ void CC_Ent_Create( const CCommand& args )
 	if (entity)
 	{
 		entity->Precache();
-
-		// Pass in any additional parameters.
-		for ( int i = 2; i + 1 < args.ArgC(); i += 2 )
-		{
-			const char *pKeyName = args[i];
-			const char *pValue = args[i+1];
-			entity->KeyValue( pKeyName, pValue );
-		}
-
 		DispatchSpawn(entity);
-
 		// Now attempt to drop into the world
+		CBasePlayer* pPlayer = UTIL_GetCommandClient();
 		trace_t tr;
 		Vector forward;
 		pPlayer->EyeVectors( &forward );
@@ -7365,12 +7235,10 @@ void CC_Ent_Create( const CCommand& args )
 			entity->Teleport( &tr.endpos, NULL, NULL );
 			UTIL_DropToFloor( entity, MASK_SOLID );
 		}
-
-		entity->Activate();
 	}
 	CBaseEntity::SetAllowPrecache( allowPrecache );
 }
-static ConCommand ent_create("ent_create", CC_Ent_Create, "Creates an entity of the given type where the player is looking.  Additional parameters can be passed in in the form: ent_create <entity name> <param 1 name> <param 1> <param 2 name> <param 2>...<param N name> <param N>", FCVAR_GAMEDLL | FCVAR_CHEAT);
+static ConCommand ent_create("ent_create", CC_Ent_Create, "Creates an entity of the given type where the player is looking.", FCVAR_GAMEDLL | FCVAR_CHEAT);
 
 //------------------------------------------------------------------------------
 // Purpose: Teleport a specified entity to where the player is looking

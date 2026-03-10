@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: combine ball -	can be held by the super physcannon and launched
 //							by the AR2's alt-fire
@@ -240,7 +240,7 @@ END_SEND_TABLE()
 //-----------------------------------------------------------------------------
 // Gets at the spawner
 //-----------------------------------------------------------------------------
-CFuncCombineBallSpawner *CPropCombineBall::GetSpawner()
+inline CFuncCombineBallSpawner *CPropCombineBall::GetSpawner()
 {
 	return m_hSpawner;
 }
@@ -705,42 +705,42 @@ void CPropCombineBall::WhizSoundThink()
 
 	pPhysicsObject->GetPosition( &vecPosition, NULL );
 	pPhysicsObject->GetVelocity( &vecVelocity, NULL );
+
+	//TERO: This is added by me
+	CSoundEnt::InsertSound( SOUND_DANGER, GetAbsOrigin(), 200, 0.5f, this, SOUNDENT_CHANNEL_REPEATED_DANGER, NULL );
 	
-	if ( gpGlobals->maxClients == 1 )
+	CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
+	if ( pPlayer )
 	{
-		CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
-		if ( pPlayer )
+		Vector vecDelta;
+		VectorSubtract( pPlayer->GetAbsOrigin(), vecPosition, vecDelta );
+		VectorNormalize( vecDelta );
+		if ( DotProduct( vecDelta, vecVelocity ) > 0.5f )
 		{
-			Vector vecDelta;
-			VectorSubtract( pPlayer->GetAbsOrigin(), vecPosition, vecDelta );
-			VectorNormalize( vecDelta );
-			if ( DotProduct( vecDelta, vecVelocity ) > 0.5f )
+			Vector vecEndPoint;
+			VectorMA( vecPosition, 2.0f * TICK_INTERVAL, vecVelocity, vecEndPoint );
+			float flDist = CalcDistanceToLineSegment( pPlayer->GetAbsOrigin(), vecPosition, vecEndPoint );
+			if ( flDist < 200.0f )
 			{
-				Vector vecEndPoint;
-				VectorMA( vecPosition, 2.0f * TICK_INTERVAL, vecVelocity, vecEndPoint );
-				float flDist = CalcDistanceToLineSegment( pPlayer->GetAbsOrigin(), vecPosition, vecEndPoint );
-				if ( flDist < 200.0f )
+				CPASAttenuationFilter filter( vecPosition, ATTN_NORM );
+
+				EmitSound_t ep;
+				ep.m_nChannel = CHAN_STATIC;
+				if ( hl2_episodic.GetBool() )
 				{
-					CPASAttenuationFilter filter( vecPosition, ATTN_NORM );
-
-					EmitSound_t ep;
-					ep.m_nChannel = CHAN_STATIC;
-					if ( hl2_episodic.GetBool() )
-					{
-						ep.m_pSoundName = "NPC_CombineBall_Episodic.WhizFlyby";
-					}
-					else
-					{
-						ep.m_pSoundName = "NPC_CombineBall.WhizFlyby";
-					}
-					ep.m_flVolume = 1.0f;
-					ep.m_SoundLevel = SNDLVL_NORM;
-
-					EmitSound( filter, entindex(), ep );
-
-					SetContextThink( &CPropCombineBall::WhizSoundThink, gpGlobals->curtime + 0.5f, s_pWhizThinkContext );
-					return;
+					ep.m_pSoundName = "NPC_CombineBall_Episodic.WhizFlyby";
 				}
+				else
+				{
+					ep.m_pSoundName = "NPC_CombineBall.WhizFlyby";
+				}
+				ep.m_flVolume = 1.0f;
+				ep.m_SoundLevel = SNDLVL_NORM;
+
+				EmitSound( filter, entindex(), ep );
+
+				SetContextThink( &CPropCombineBall::WhizSoundThink, gpGlobals->curtime + 0.5f, s_pWhizThinkContext );
+				return;
 			}
 		}
 	}
@@ -1233,7 +1233,7 @@ void CPropCombineBall::OnHitEntity( CBaseEntity *pHitEntity, float flSpeed, int 
 
 					if ( pHitEntity->IsNPC() && pHitEntity->Classify() != CLASS_PLAYER_ALLY_VITAL && hl2_episodic.GetBool() == true )
 					{
-						if ( pHitEntity->Classify() != CLASS_PLAYER_ALLY || ( pHitEntity->Classify() == CLASS_PLAYER_ALLY && m_bStruckEntity == false ) )
+						if ( pHitEntity->Classify() != CLASS_PLAYER_ALLY || pHitEntity->Classify() == CLASS_PLAYER_ALLY && m_bStruckEntity == false )
 						{
 							info.SetDamage( pHitEntity->GetMaxHealth() );
 							m_bStruckEntity = true;
@@ -1264,7 +1264,9 @@ void CPropCombineBall::OnHitEntity( CBaseEntity *pHitEntity, float flSpeed, int 
 					}
 
 					DissolveEntity( pHitEntity );
-					if ( pHitEntity->ClassMatches( "npc_hunter" ) )
+					if ( pHitEntity->ClassMatches( "npc_hunter" ) || 
+						 pHitEntity->ClassMatches( "npc_aliengrunt" ) ||
+						 pHitEntity->ClassMatches( "npc_aliencontroller" ) )
 					{
 						DoExplosion();
 						return;
@@ -1344,7 +1346,7 @@ bool CPropCombineBall::IsAttractiveTarget( CBaseEntity *pEntity )
 		return false;
 
 	// Don't guide toward striders
-	if ( FClassnameIs( pEntity, "npc_strider" ) )
+	if ( FClassnameIs( pEntity, "npc_strider" ) || FClassnameIs(pEntity, "npc_aliencontroller") )
 		return false;
 
 	if( WasFiredByNPC() )
@@ -1698,6 +1700,8 @@ BEGIN_DATADESC( CFuncCombineBallSpawner )
 	DEFINE_UTLVECTOR( m_BallRespawnTime, FIELD_TIME ),
 	DEFINE_FIELD( m_flDisableTime,	FIELD_TIME ),
 
+	DEFINE_KEYFIELD( m_CombineBallTargetName, FIELD_STRING, "combineball_targetname" ),
+
 	DEFINE_INPUTFUNC( FIELD_VOID, "Enable", InputEnable ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "Disable", InputDisable ),
 
@@ -1731,6 +1735,12 @@ CFuncCombineBallSpawner::CFuncCombineBallSpawner()
 void CFuncCombineBallSpawner::SpawnBall()
 {
 	CPropCombineBall *pBall = static_cast<CPropCombineBall*>( CreateEntityByName( "prop_combine_ball" ) );
+
+	//TERO: This next part added by me
+	if (STRING(m_CombineBallTargetName) != NULL)
+	{
+		pBall->KeyValue("targetname", STRING(m_CombineBallTargetName));
+	}
 
 	float flRadius = m_flBallRadius;
 	pBall->SetRadius( flRadius );
@@ -1780,7 +1790,7 @@ void CFuncCombineBallSpawner::Spawn()
 
 	float flWidth = CollisionProp()->OBBSize().x;
 	float flHeight = CollisionProp()->OBBSize().y;
-	m_flRadius = MIN( flWidth, flHeight ) * 0.5f;
+	m_flRadius = min( flWidth, flHeight ) * 0.5f;
 	if ( m_flRadius <= 0.0f && m_bShooter == false )
 	{
 		Warning("Zero dimension func_combine_ball_spawner! Removing...\n");

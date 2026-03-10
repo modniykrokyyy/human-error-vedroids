@@ -661,7 +661,7 @@ public:
 	//
 	//-----------------------------------------------------
 	
-	void				SetSchedule( CAI_Schedule *pNewSchedule );
+	virtual void		SetSchedule( CAI_Schedule *pNewSchedule, bool DontClearGoal = false );
 	bool				SetSchedule( int localScheduleID );
 	
 	void				SetDefaultFailSchedule( int failSchedule )	{ m_failSchedule = failSchedule; }
@@ -1585,6 +1585,11 @@ protected:
 	string_t			m_iszPendingWeapon;			// THe NPC should create and equip this weapon.
 	bool				m_bIgnoreUnseenEnemies;
 
+//TERO: added for stunstick ragdollboogie
+public:
+
+	float				SumDamage()	{ return m_flSumDamage; }
+
 private:
 	CAI_ShotRegulator	m_ShotRegulator;			// When should I shoot next?
 
@@ -2123,6 +2128,14 @@ public:
 	void				GetPlayerAvoidBounds( Vector *pMins, Vector *pMaxs );
 
 	void				StartPingEffect( void ) { m_flTimePingEffect = gpGlobals->curtime + 2.0f; DispatchUpdateTransmitState(); }
+
+	//TERO: added by me
+public:
+
+	bool				m_bKilledByPlayer;
+	float				m_flRemoveTime;
+	virtual float		RemoveTimeDelay() { return 30.0f; }
+
 };
 
 

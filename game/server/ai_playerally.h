@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright © 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:
 //
@@ -120,6 +120,13 @@
 
 // Vortigaunt
 #define TLK_VORTIGAUNT_DISPEL	"TLK_VORTIGAUNT_DISPEL"	// Dispel attack starting
+
+// UNIQUE METROCOP - HUMAN ERROR (TERO)
+#define TLK_CP_MEDIC					"TLK_CP_MEDIC"
+#define TLK_CP_BEES						"TLK_CP_BEES"
+#define TLK_CP_RECHARGING				"TLK_CP_RECHARGING"
+#define TLK_CP_RECHARGE					"TLK_CP_RECHARGE"
+#define TLK_CP_GENERATOR_OFFLINE		"TLK_CP_GENERATOR_OFFLINE"
 
 // resume is "as I was saying..." or "anyhow..."
 #define TLK_RESUME 		"TLK_RESUME"
@@ -371,7 +378,7 @@ public:
 	bool		IsOkToSpeakInResponseToPlayer( void );
 	
 	bool		ShouldSpeakRandom( AIConcept_t concept, int iChance );
-	bool		IsAllowedToSpeak( AIConcept_t concept, bool bRespondingToPlayer = false );
+	virtual bool IsAllowedToSpeak( AIConcept_t concept, bool bRespondingToPlayer = false );
 	virtual bool SpeakIfAllowed( AIConcept_t concept, const char *modifiers = NULL, bool bRespondingToPlayer = false, char *pszOutResponseChosen = NULL, size_t bufsize = 0 );
 	void		ModifyOrAppendCriteria( AI_CriteriaSet& set );
 
@@ -403,7 +410,7 @@ public:
 	void			InputEnableSpeakWhileScripting( inputdata_t &inputdata );
 	void			InputDisableSpeakWhileScripting( inputdata_t &inputdata );
 	
-	void			AnswerQuestion( CAI_PlayerAlly *pQuestioner, int iQARandomNum, bool bAnsweringHello );
+	virtual void	AnswerQuestion( CAI_PlayerAlly *pQuestioner, int iQARandomNum, bool bAnsweringHello );
 
 protected:
 	

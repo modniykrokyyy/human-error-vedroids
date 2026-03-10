@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -14,11 +14,12 @@
 #include "hud.h"
 #include "hudelement.h"
 #include "hud_macros.h"
-#include "hud_numericdisplay.h"
+#include "Human_Error/hud_icondisplay.h"
 #include "iclientmode.h"
 
 #include "vgui_controls/AnimationController.h"
 #include "vgui/ILocalize.h"
+#include "vgui/ISurface.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -28,9 +29,21 @@
 //-----------------------------------------------------------------------------
 // Purpose: Displays suit power (armor) on hud
 //-----------------------------------------------------------------------------
-class CHudBattery : public CHudNumericDisplay, public CHudElement
+class CHudBattery : public CHudIconDisplay, public CHudElement
 {
-	DECLARE_CLASS_SIMPLE( CHudBattery, CHudNumericDisplay );
+	DECLARE_CLASS_SIMPLE( CHudBattery, CHudIconDisplay );
+
+	/*~CHudBattery()
+	{
+		if (m_pBar)
+		{
+			m_pBar->DeletePanel();
+		}
+		if (m_pBase)
+		{
+			m_pBase->DeletePanel();
+		}
+	}*/
 
 public:
 	CHudBattery( const char *pElementName );
@@ -73,8 +86,41 @@ void CHudBattery::Init( void )
 //-----------------------------------------------------------------------------
 void CHudBattery::Reset( void )
 {
-	SetLabelText(g_pVGuiLocalize->Find("#Valve_Hud_SUIT"));
+	BaseClass::Reset();
+
+	//SetLabelText(g_pVGuiLocalize->Find("#Valve_Hud_SUIT"));
+	SetIcon(L"*");
 	SetDisplayValue(m_iBat);
+	SetLabel(L"Battery");
+
+	/*m_bSimple = true;
+
+	if (!m_pBase)
+		m_pBase = new ImageFX( this, "sprites/metrocop_hud/hud_base", "MetrocopHud_BaseBattery" );
+
+	if (m_pBase)
+	{
+		m_pBase->SetCustomPoints(true);
+		m_pBase->SetVisibleEx(true);
+
+		m_pBase->SetZPos(5);	
+		PaintSimpleBar(m_pBase, 100, 100, icon_ypos + (surface()->GetFontTall(m_hSmallNumberFont)*0.6) + (GetWide()*0.1), 0.2f);
+	}
+
+	if (!m_pBar)
+		m_pBar = new ImageFX( this, "sprites/metrocop_hud/hud_battery", "MetrocopHud_Battery" );
+
+	if (m_pBar)
+	{
+		m_pBar->SetPosEx(GetWide()/2,GetTall()/2);
+		m_pBar->SetImageSize(GetWide(), GetTall());
+		m_pBar->SetCustomPoints(true);
+		m_pBar->SetVisibleEx(true);
+
+		m_pBar->SetZPos(6);
+	}
+
+	DevMsg("Battery hud reset\n");*/
 }
 
 //-----------------------------------------------------------------------------
@@ -92,7 +138,7 @@ void CHudBattery::VidInit( void )
 //-----------------------------------------------------------------------------
 bool CHudBattery::ShouldDraw( void )
 {
-	bool bNeedsDraw = ( m_iBat != m_iNewBat ) || ( GetAlpha() > 0 );
+	bool bNeedsDraw = ( m_iBat != m_iNewBat || ( GetAlpha() > 0 ));
 
 	return ( bNeedsDraw && CHudElement::ShouldDraw() );
 }
@@ -108,6 +154,8 @@ void CHudBattery::OnThink( void )
 	if ( !m_iNewBat )
 	{
 	 	g_pClientMode->GetViewportAnimationController()->StartAnimationSequence("SuitPowerZero");
+//		ShowImages(false);
+		//SetPaintBackgroundEnabled( false );
 	}
 	else if ( m_iNewBat < m_iBat )
 	{
@@ -125,6 +173,8 @@ void CHudBattery::OnThink( void )
 		// battery power has increased (if we had no previous armor, or if we just loaded the game, don't use alert state)
 		if ( m_iBat == INIT_BAT || m_iBat == 0 || m_iNewBat >= 20)
 		{
+//			ShowImages(true);
+			SetPaintBackgroundEnabled( true );
 			g_pClientMode->GetViewportAnimationController()->StartAnimationSequence("SuitPowerIncreasedAbove20");
 		}
 		else

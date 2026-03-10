@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:		Base combat character with no AI
 //
@@ -196,7 +196,7 @@ float CAmmoDef::DamageForce(int nAmmoIndex)
 // Does not increment m_nAmmoIndex because the functions below do so and 
 //  are the only entry point.
 //-----------------------------------------------------------------------------
-bool CAmmoDef::AddAmmoType(char const* name, int damageType, int tracerType, int nFlags, int minSplashSize, int maxSplashSize )
+bool CAmmoDef::AddAmmoType(char const* name, int damageType, int tracerType, int nFlags, int minSplashSize, int maxSplashSize, wchar_t *icon, wchar_t *AmmoTitle )
 {
 	if (m_nAmmoIndex == MAX_AMMO_TYPES)
 		return false;
@@ -210,6 +210,14 @@ bool CAmmoDef::AddAmmoType(char const* name, int damageType, int tracerType, int
 	m_AmmoType[m_nAmmoIndex].nMaxSplashSize	= maxSplashSize;
 	m_AmmoType[m_nAmmoIndex].nFlags	= nFlags;
 
+	
+
+	wcsncpy(m_AmmoType[m_nAmmoIndex].m_Icon, icon, sizeof(m_AmmoType[m_nAmmoIndex].m_Icon) / sizeof(wchar_t));
+	m_AmmoType[m_nAmmoIndex].m_Icon[(sizeof(m_AmmoType[m_nAmmoIndex].m_Icon) / sizeof(wchar_t)) - 1] = 0;
+
+	wcsncpy(m_AmmoType[m_nAmmoIndex].m_Title, AmmoTitle, sizeof(m_AmmoType[m_nAmmoIndex].m_Title) / sizeof(wchar_t));
+	m_AmmoType[m_nAmmoIndex].m_Title[(sizeof(m_AmmoType[m_nAmmoIndex].m_Title) / sizeof(wchar_t)) - 1] = 0;
+
 	return true;
 }
 
@@ -218,9 +226,9 @@ bool CAmmoDef::AddAmmoType(char const* name, int damageType, int tracerType, int
 //-----------------------------------------------------------------------------
 void CAmmoDef::AddAmmoType(char const* name, int damageType, int tracerType, 
 	char const* plr_cvar, char const* npc_cvar, char const* carry_cvar, 
-	float physicsForceImpulse, int nFlags, int minSplashSize, int maxSplashSize)
+	float physicsForceImpulse, int nFlags, wchar_t *icon, wchar_t *AmmoTitle, int minSplashSize, int maxSplashSize )
 {
-	if ( AddAmmoType( name, damageType, tracerType, nFlags, minSplashSize, maxSplashSize ) == false )
+	if ( AddAmmoType( name, damageType, tracerType, nFlags, minSplashSize, maxSplashSize, icon, AmmoTitle ) == false )
 		return;
 
 	if (plr_cvar)
@@ -259,9 +267,9 @@ void CAmmoDef::AddAmmoType(char const* name, int damageType, int tracerType,
 //-----------------------------------------------------------------------------
 void CAmmoDef::AddAmmoType(char const* name, int damageType, int tracerType, 
 	int plr_dmg, int npc_dmg, int carry, float physicsForceImpulse, 
-	int nFlags, int minSplashSize, int maxSplashSize )
+	int nFlags, wchar_t *icon, wchar_t *AmmoTitle, int minSplashSize, int maxSplashSize )
 {
-	if ( AddAmmoType( name, damageType, tracerType, nFlags, minSplashSize, maxSplashSize ) == false )
+	if ( AddAmmoType( name, damageType, tracerType, nFlags, minSplashSize, maxSplashSize, icon, AmmoTitle ) == false )
 		return;
 
 	m_AmmoType[m_nAmmoIndex].pPlrDmg = plr_dmg;

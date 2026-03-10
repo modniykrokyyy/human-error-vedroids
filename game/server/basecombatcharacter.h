@@ -367,6 +367,9 @@ public:
 	virtual bool		RemoveEntityRelationship( CBaseEntity *pEntity );
 	virtual void		AddClassRelationship( Class_T nClass, Disposition_t nDisposition, int nPriority );
 
+	//TERO: this one added by me
+	static Disposition_t		GetDefaultRelationshipDispositionBetweenClasses( Class_T nClassTarget1, Class_T nClassTarget2 );
+	
 	virtual void		ChangeTeam( int iTeamNum );
 
 	// Nav hull type

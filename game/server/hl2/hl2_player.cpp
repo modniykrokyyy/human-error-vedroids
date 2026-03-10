@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:		Player for HL2.
 //
@@ -47,13 +47,11 @@
 #include "filters.h"
 #include "tier0/icommandline.h"
 
-#ifdef HL2_EPISODIC
+/*#ifdef HL2_EPISODIC
 #include "npc_alyx_episodic.h"
-#endif
-
-#ifdef PORTAL
-#include "portal_player.h"
-#endif // PORTAL
+#endif*/
+#include "ammodef.h"
+#include "weapon_stunstick.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -167,9 +165,7 @@ bool Flashlight_UseLegacyVersion( void )
 		if ( UTIL_GetModDir( modDir, sizeof(modDir) ) == false )
 			return false;
 
-		g_bUseLegacyFlashlight = ( !Q_strcmp( modDir, "hl2" ) ||
-					   !Q_strcmp( modDir, "episodic" ) ||
-					   !Q_strcmp( modDir, "lostcoast" ) || !Q_strcmp( modDir, "hl1" ));
+		g_bUseLegacyFlashlight = ( !Q_strcmp( modDir, "hl2" ) || !Q_strcmp( modDir, "episodic" ) );
 
 		g_bCacheLegacyFlashlightStatus = false;
 	}
@@ -209,9 +205,6 @@ public:
 	void InputEnableCappedPhysicsDamage( inputdata_t &inputdata );
 	void InputDisableCappedPhysicsDamage( inputdata_t &inputdata );
 	void InputSetLocatorTargetEntity( inputdata_t &inputdata );
-#ifdef PORTAL
-	void InputSuppressCrosshair( inputdata_t &inputdata );
-#endif // PORTAL2
 
 	void Activate ( void );
 
@@ -243,6 +236,32 @@ static ConCommand toggle_zoom("toggle_zoom", CC_ToggleZoom, "Toggles zoom displa
 // ConVar cl_forwardspeed( "cl_forwardspeed", "400", FCVAR_CHEAT ); // Links us to the client's version
 ConVar xc_crouch_range( "xc_crouch_range", "0.85", FCVAR_ARCHIVE, "Percentarge [1..0] of joystick range to allow ducking within" );	// Only 1/2 of the range is used
 ConVar xc_use_crouch_limiter( "xc_use_crouch_limiter", "0", FCVAR_ARCHIVE, "Use the crouch limiting logic on the controller" );
+
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+//TERO: razvanadrian's tutorial for dropping weapons
+
+void CC_Player_Drop( void )
+{
+	CBasePlayer *pPlayer = NULL;
+	pPlayer = ToBasePlayer( UTIL_GetCommandClient() );
+
+	if (!pPlayer)
+		return;
+
+	if (pPlayer->GetVehicle())
+		return;
+
+	CBaseCombatWeapon *pPlayerItem = pPlayer->HLSS_GetWeaponToDrop();
+
+	if ( pPlayerItem && pPlayerItem->GetSlot() <= 2) 
+	{
+		pPlayer->Weapon_Drop( pPlayerItem, NULL, NULL);
+	}
+
+	UTIL_HudHintText(pPlayer, "");
+}
+static ConCommand drop("drop", CC_Player_Drop, "Drop Player item");
 
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
@@ -908,14 +927,15 @@ void CHL2_Player::StartAdmireGlovesAnimation( void )
 {
 	MDLCACHE_CRITICAL_SECTION();
 	CBaseViewModel *vm = GetViewModel( 0 );
-
+	
 	if ( vm && !GetActiveWeapon() )
 	{
 		vm->SetWeaponModel( "models/weapons/v_hands.mdl", NULL );
+		vm->RemoveEffects( EF_NODRAW );
 		ShowViewModel( true );
 						
 		int	idealSequence = vm->SelectWeightedSequence( ACT_VM_IDLE );
-		
+
 		if ( idealSequence >= 0 )
 		{
 			vm->SendViewModelMatchingSequence( idealSequence );
@@ -1028,7 +1048,7 @@ bool CHL2_Player::HandleInteraction(int interactionType, void *data, CBaseCombat
 	else if (interactionType ==	g_interactionBarnacleVictimGrab)
 	{
 #ifdef HL2_EPISODIC
-		CNPC_Alyx *pAlyx = CNPC_Alyx::GetAlyx();
+/*		CNPC_Alyx *pAlyx = CNPC_Alyx::GetAlyx();
 		if ( pAlyx )
 		{
 			// Make Alyx totally hate this barnacle so that she saves the player.
@@ -1036,7 +1056,7 @@ bool CHL2_Player::HandleInteraction(int interactionType, void *data, CBaseCombat
 
 			priority = pAlyx->IRelationPriority(sourceEnt);
 			pAlyx->AddEntityRelationship( sourceEnt, D_HT, priority + 5 );
-		}
+		}*/
 #endif//HL2_EPISODIC
 
 		m_afPhysicsFlags |= PFLAG_ONBARNACLE;
@@ -1658,7 +1678,7 @@ void CHL2_Player::CommanderExecute( CommanderCommand_t command )
 	//---------------------------------
 	// If the trace hits an NPC, send all ally NPCs a "target" order. Always
 	// goes to targeted one first
-#ifdef DBGFLAG_ASSERT
+#ifdef DEBUG
 	int nAIs = g_AI_Manager.NumAIs();
 #endif
 	CAI_BaseNPC * pTargetNpc = (goal.m_pGoalEntity) ? goal.m_pGoalEntity->MyNPCPointer() : NULL;
@@ -1978,6 +1998,24 @@ ConVar	sk_battery( "sk_battery","0" );
 
 bool CHL2_Player::ApplyBattery( float powerMultiplier )
 {
+	bool bGaveStunStickAmmo = false;
+
+	if ( Weapon_OwnsThisType( "weapon_stunstick" ))
+	{
+		int iStunStick	= GetAmmoDef()->Index( "Stunstick" );
+		int iCount		= GetAmmoCount( iStunStick );
+		int iMax		= GetAmmoDef()->MaxCarry( iStunStick );
+
+		if ( iCount < iMax )
+		{
+			iCount = iCount + min ( iMax - iCount, 3);
+
+			SetAmmoCount( iCount, iStunStick );
+
+			bGaveStunStickAmmo = true;
+		}
+	}
+
 	const float MAX_NORMAL_BATTERY = 100;
 	if ((ArmorValue() < MAX_NORMAL_BATTERY) && IsSuitEquipped())
 	{
@@ -2010,7 +2048,7 @@ bool CHL2_Player::ApplyBattery( float powerMultiplier )
 		//SetSuitUpdate(szcharge, FALSE, SUIT_NEXT_IN_30SEC);
 		return true;		
 	}
-	return false;
+	return bGaveStunStickAmmo;
 }
 
 //-----------------------------------------------------------------------------
@@ -2428,11 +2466,11 @@ bool CHL2_Player::ShouldShootMissTarget( CBaseCombatCharacter *pAttacker )
 void CHL2_Player::CombineBallSocketed( CPropCombineBall *pCombineBall )
 {
 #ifdef HL2_EPISODIC
-	CNPC_Alyx *pAlyx = CNPC_Alyx::GetAlyx();
+/*	CNPC_Alyx *pAlyx = CNPC_Alyx::GetAlyx();
 	if ( pAlyx )
 	{
 		pAlyx->CombineBallSocketed( pCombineBall->NumBounces() );
-	}
+	}*/
 #endif
 }
 
@@ -2590,6 +2628,42 @@ int CHL2_Player::GiveAmmo( int nCount, int nAmmoIndex, bool bSuppressSound)
 	if (nAmmoIndex < 0)
 		return 0;
 
+	//TERO: added
+	bool bHaveWeaponThatUsesThisAmmoType = false;
+
+	//if (GetAmmoDef()->Index("AR2AltFire") == nAmmoIndex)
+
+	//TERO: Unless it's ammo for one of these weapons, it doesn't matter if we don't have the weapon.
+	//		For example, player should still be able to carry SMG1 Grenade ammo even though he doesn't have SMG1.
+	if ((GetAmmoDef()->Index("AR2") != nAmmoIndex) && 
+		(GetAmmoDef()->Index("SMG1") != nAmmoIndex) && 
+		(GetAmmoDef()->Index("Buckshot") != nAmmoIndex) &&
+		(GetAmmoDef()->Index("RPG_Round") != nAmmoIndex) &&
+		(GetAmmoDef()->Index("Pistol") != nAmmoIndex) &&
+		(GetAmmoDef()->Index("AlyxGun") != nAmmoIndex) &&
+		(GetAmmoDef()->Index("357") != nAmmoIndex))
+	{
+		bHaveWeaponThatUsesThisAmmoType = true;
+	}
+	else
+	{
+		for (int i=0; (i < WeaponCount() && !bHaveWeaponThatUsesThisAmmoType ); i++)
+		{
+			CBaseCombatWeapon *pSearch = GetWeapon( i );
+
+			if (pSearch && (pSearch->m_iPrimaryAmmoType == nAmmoIndex || pSearch->m_iSecondaryAmmoType == nAmmoIndex))
+			{
+				bHaveWeaponThatUsesThisAmmoType = true;
+			}
+		}
+	}
+
+	if (!bHaveWeaponThatUsesThisAmmoType)
+	{
+		return 0;
+	}
+	//TERO: hlss code ends here
+
 	bool bCheckAutoSwitch = false;
 	if (!HasAnyAmmoOfType(nAmmoIndex))
 	{
@@ -2630,12 +2704,14 @@ int CHL2_Player::GiveAmmo( int nCount, int nAmmoIndex, bool bSuppressSound)
 bool CHL2_Player::Weapon_CanUse( CBaseCombatWeapon *pWeapon )
 {
 #ifndef HL2MP	
-	if ( pWeapon->ClassMatches( "weapon_stunstick" ) )
+/*	//TERO: if we already have stunstick, use other stunsticks for battery
+	if ( Weapon_OwnsThisType( "weapon_stunstick" ) &&  pWeapon->ClassMatches( "weapon_stunstick" ) )
 	{
+		DevMsg("has stunstick already");
 		if ( ApplyBattery( 0.5 ) )
 			UTIL_Remove( pWeapon );
 		return false;
-	}
+	}*/
 #endif
 
 	return BaseClass::Weapon_CanUse( pWeapon );
@@ -2671,6 +2747,21 @@ void CHL2_Player::Weapon_Equip( CBaseCombatWeapon *pWeapon )
 //-----------------------------------------------------------------------------
 bool CHL2_Player::BumpWeapon( CBaseCombatWeapon *pWeapon )
 {
+//TERO: HLSS thing
+	/*if ( Weapon_OwnsThisType( "weapon_stunstick" ) &&  
+		 pWeapon->ClassMatches( "weapon_stunstick" ) )
+	{
+		int iAmmoType = pWeapon->GetPrimaryAmmoType();
+		
+		if (GetAmmoCount( iAmmoType ) >= GetAmmoDef()->MaxCarry(iAmmoType))
+		{	 
+			if ( ApplyBattery( pWeapon->GetPrimaryAmmoCount() * 0.34 ) )
+			{
+				UTIL_Remove( pWeapon );
+				return false;
+			}
+		}
+	}*/
 
 #if	HL2_SINGLE_PRIMARY_WEAPON_MODE
 
@@ -3783,9 +3874,6 @@ BEGIN_DATADESC( CLogicPlayerProxy )
 	DEFINE_INPUTFUNC( FIELD_VOID,	"EnableCappedPhysicsDamage", InputEnableCappedPhysicsDamage ),
 	DEFINE_INPUTFUNC( FIELD_VOID,	"DisableCappedPhysicsDamage", InputDisableCappedPhysicsDamage ),
 	DEFINE_INPUTFUNC( FIELD_STRING,	"SetLocatorTargetEntity", InputSetLocatorTargetEntity ),
-#ifdef PORTAL
-	DEFINE_INPUTFUNC( FIELD_VOID,	"SuppressCrosshair", InputSuppressCrosshair ),
-#endif // PORTAL
 	DEFINE_FIELD( m_hPlayer, FIELD_EHANDLE ),
 END_DATADESC()
 
@@ -3918,13 +4006,3 @@ void CLogicPlayerProxy::InputSetLocatorTargetEntity( inputdata_t &inputdata )
 	pPlayer->SetLocatorTargetEntity(pTarget);
 }
 
-#ifdef PORTAL
-void CLogicPlayerProxy::InputSuppressCrosshair( inputdata_t &inputdata )
-{
-	if( m_hPlayer == NULL )
-		return;
-
-	CPortal_Player *pPlayer = ToPortalPlayer(m_hPlayer.Get());
-	pPlayer->SuppressCrosshair( true );
-}
-#endif // PORTAL

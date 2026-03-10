@@ -121,6 +121,18 @@ enum Class_T
 	CLASS_HACKED_ROLLERMINE,
 	CLASS_COMBINE_HUNTER,
 
+	//HUMAN ERROR CLASSES
+	CLASS_ALIENGRUNT,
+	CLASS_ALIENCONTROLLER,
+	CLASS_BEE,
+	CLASS_COMBINE_HACKED,
+	CLASS_MILITARY_HACKED,
+	CLASS_AIR_DEFENSE,
+	CLASS_AIR_DEFENSE_HACKED,
+
+	CLASS_MANTARAY_TELEPORTER,
+	//CLASS_MANTARAY_HOSTILE,
+
 	NUM_AI_CLASSES
 };
 
@@ -570,6 +582,11 @@ public:
 	// Activate - called for each entity after each load game and level load
 	virtual void Activate( void );
 
+	// Called once per frame after the server frame loop has finished and after all messages being
+	//  sent to clients have been sent.
+	// NOTE: This will not be called unless the entity requests it via gEntList.AddPostClientMessageEntity
+	void PostClientMessagesSent( void );
+
 	// Hierarchy traversal
 	CBaseEntity *GetMoveParent( void );
 	CBaseEntity *GetRootMoveParent();
@@ -790,11 +807,6 @@ public:
 	// was pev->rendermode
 	CNetworkVar( unsigned char, m_nRenderMode );
 	CNetworkVar( short, m_nModelIndex );
-	
-#ifdef TF_DLL
-	CNetworkArray( int, m_nModelIndexOverrides, MAX_VISION_MODES ); // used to override the base model index on the client if necessary
-#endif
-
 	// was pev->rendercolor
 	CNetworkColor32( m_clrRender );
 	const color32 GetRenderColor() const;
@@ -905,7 +917,6 @@ public:
 
 	// This is what you should call to apply damage to an entity.
 	void TakeDamage( const CTakeDamageInfo &info );
-	virtual void AdjustDamageDirection( const CTakeDamageInfo &info, Vector &dir, CBaseEntity *pEnt ) {}
 
 	virtual int		TakeHealth( float flHealth, int bitsDamageType );
 
@@ -1069,7 +1080,7 @@ public:
 		const Vector &vecSpread, float flDistance, int iAmmoType, int iTracerFreq = 4, 
 		int firingEntID = -1, int attachmentID = -1, int iDamage = 0, 
 		CBaseEntity *pAttacker = NULL, bool bFirstShotAccurate = false, bool bPrimaryAttack = true );
-	virtual void ModifyFireBulletsDamage( CTakeDamageInfo* dmgInfo ) {}
+    virtual void ModifyFireBulletsDamage( CTakeDamageInfo* dmgInfo ) {}
 
 	virtual CBaseEntity *Respawn( void ) { return NULL; }
 
@@ -1081,7 +1092,7 @@ public:
 	virtual bool IsLockedByMaster( void ) { return false; }
 
 	// Health accessors.
-	virtual int		GetMaxHealth()  const	{ return m_iMaxHealth; }
+	int		GetMaxHealth()  const	{ return m_iMaxHealth; }
 	void	SetMaxHealth( int amt )	{ m_iMaxHealth = amt; }
 
 	int		GetHealth() const		{ return m_iHealth; }
@@ -1373,7 +1384,7 @@ public:
 	void					StopSound( const char *soundname, HSOUNDSCRIPTHANDLE& handle );
 	void					GenderExpandString( char const *in, char *out, int maxlen );
 
-	virtual void ModifyEmitSoundParams( EmitSound_t &params );
+    virtual void ModifyEmitSoundParams( EmitSound_t &params );
 
 	static float GetSoundDuration( const char *soundname, char const *actormodel );
 
@@ -1411,9 +1422,6 @@ public:
 	static bool m_bAllowPrecache;
 
 	static bool IsSimulatingOnAlternateTicks();
-
-	virtual bool IsDeflectable() { return false; }
-	virtual void Deflected( CBaseEntity *pDeflectedBy, Vector &vecDir ) {}
 
 //	void Relink() {}
 
@@ -1774,7 +1782,7 @@ public:
 // Methods shared by client and server
 public:
 	void							SetSize( const Vector &vecMin, const Vector &vecMax ); // UTIL_SetSize( this, mins, maxs );
-	static int						PrecacheModel( const char *name, bool bPreload = true ); 
+	static int						PrecacheModel( const char *name ); 
 	static bool						PrecacheSound( const char *name );
 	static void						PrefetchSound( const char *name );
 	void							Remove( ); // UTIL_Remove( this );

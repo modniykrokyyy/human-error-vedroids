@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ====
 //
 // Purpose: 
 //
@@ -37,8 +37,6 @@
 #include "props.h"
 #include "rumble_shared.h"
 #include "particle_parse.h"
-// NVNT turret recoil
-#include "haptics/haptic_utils.h"
 
 #ifdef HL2_DLL
 #include "hl2_player.h"
@@ -868,65 +866,7 @@ void CFuncTank::Spawn( void )
 void CFuncTank::Activate( void )
 {
 	BaseClass::Activate();
-	
-	CBaseEntity *pParent = gEntList.FindEntityByName( NULL, m_iParent );
 
-	if ((pParent != NULL) && (pParent->edict() != NULL))
-	{
-		SetParent( pParent );
-	}
-
-	if ( GetParent() && GetParent()->GetBaseAnimating() )
-	{
-		CBaseAnimating *pAnim = GetParent()->GetBaseAnimating();
-		if ( m_iszBaseAttachment != NULL_STRING )
-		{
-			int nAttachment = pAnim->LookupAttachment( STRING( m_iszBaseAttachment ) );
-			if ( nAttachment != 0 )
-			{
-				SetParent( pAnim, nAttachment );
-				SetLocalOrigin( vec3_origin );
-				SetLocalAngles( vec3_angle );
-			}
-		}
-
-		m_bUsePoseParameters = (m_iszYawPoseParam != NULL_STRING) && (m_iszPitchPoseParam != NULL_STRING);
-
-		if ( m_iszBarrelAttachment != NULL_STRING )
-		{
-			if ( m_bUsePoseParameters )
-			{
-				pAnim->SetPoseParameter( STRING( m_iszYawPoseParam ), 0 );
-				pAnim->SetPoseParameter( STRING( m_iszPitchPoseParam ), 0 );
-				pAnim->InvalidateBoneCache();
-			}
-
-			m_nBarrelAttachment = pAnim->LookupAttachment( STRING(m_iszBarrelAttachment) );
-
-			Vector vecWorldBarrelPos;
-			QAngle worldBarrelAngle;
-			pAnim->GetAttachment( m_nBarrelAttachment, vecWorldBarrelPos, worldBarrelAngle );
-			VectorITransform( vecWorldBarrelPos, EntityToWorldTransform( ), m_barrelPos );
-		}
-
-		if ( m_bUsePoseParameters )
-		{
-			// In this case, we're relying on the parent to have the gun model
-			AddEffects( EF_NODRAW );
-			QAngle localAngles( m_flPitchPoseCenter, m_flYawPoseCenter, 0 );
-			SetLocalAngles( localAngles );
-			SetSolid( SOLID_NONE );
-			SetMoveType( MOVETYPE_NOCLIP );
-
-			// If our parent is a prop_dynamic, make it use hitboxes for renderbox
-			CDynamicProp *pProp = dynamic_cast<CDynamicProp*>(GetParent());
-			if ( pProp )
-			{
-				pProp->m_bUseHitboxesForRenderBox = true;
-			}
-		}
-	}
-	
 	// Necessary for save/load
 	if ( (m_iszBarrelAttachment != NULL_STRING) && (m_nBarrelAttachment == 0) )
 	{
@@ -1186,10 +1126,6 @@ void CFuncTank::StopControl()
 // Purpose:
 // Called each frame by the player's ItemPostFrame
 //-----------------------------------------------------------------------------
-
-// NVNT turret recoil
-ConVar hap_turret_mag("hap_turret_mag", "5", 0);
-
 void CFuncTank::ControllerPostFrame( void )
 {
 	// Make sure we have a contoller.
@@ -1229,11 +1165,7 @@ void CFuncTank::ControllerPostFrame( void )
 	}
 	
 	Fire( bulletCount, WorldBarrelPosition(), forward, pPlayer, false );
- 
-#if defined( WIN32 ) && !defined( _X360 ) 
-	// NVNT apply a punch on the player each time fired
-	HapticPunch(pPlayer,0,0,hap_turret_mag.GetFloat());
-#endif	
+	
 	// HACKHACK -- make some noise (that the AI can hear)
 	CSoundEnt::InsertSound( SOUND_COMBAT, WorldSpaceCenter(), FUNCTANK_FIREVOLUME, 0.2 );
 	
@@ -2086,7 +2018,7 @@ void CFuncTank::AimFuncTankAtTarget( void )
 
 	SetMoveDoneTime( 0.1 );
 
-	if ( CanFire() && ( ( (fabs(distX) <= m_pitchTolerance) && (fabs(distY) <= m_yawTolerance) ) || (m_spawnflags & SF_TANK_LINEOFSIGHT) ) )
+	if ( CanFire() && ( (fabs(distX) <= m_pitchTolerance) && (fabs(distY) <= m_yawTolerance) || (m_spawnflags & SF_TANK_LINEOFSIGHT) ) )
 	{
 		bool fire = false;
 		Vector forward;

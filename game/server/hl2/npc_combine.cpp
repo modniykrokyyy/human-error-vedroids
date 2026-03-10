@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -335,6 +335,7 @@ void CNPC_Combine::Spawn( void )
 
 	CapabilitiesAdd( bits_CAP_DUCK );				// In reloading and cover
 
+	CapabilitiesAdd( bits_CAP_FRIENDLY_DMG_IMMUNE );
 	CapabilitiesAdd( bits_CAP_NO_HIT_SQUADMATES );
 
 	m_bFirstEncounter	= true;// this is true when the grunt spawns, because he hasn't encountered an enemy yet.
@@ -342,7 +343,7 @@ void CNPC_Combine::Spawn( void )
 	m_HackedGunPos = Vector ( 0, 0, 55 );
 
 	m_flStopMoveShootTime = FLT_MAX; // Move and shoot defaults on.
-	m_MoveAndShootOverlay.SetInitialDelay( 0.75 ); // But with a bit of a delay.
+	//m_MoveAndShootOverlay.SetInitialDelay( 0.75 ); // But with a bit of a delay. TERO: commented out because they are goodies now
 
 	m_flNextLostSoundTime		= 0;
 	m_flAlertPatrolTime			= 0;
@@ -378,7 +379,7 @@ void CNPC_Combine::PostNPCInit()
 		// an AR2. 
 		if( !GetActiveWeapon() || !FClassnameIs( GetActiveWeapon(), "weapon_ar2" ) )
 		{
-			// DevWarning("**Combine Elite Soldier MUST be equipped with AR2\n");
+			DevWarning("**Combine Elite Soldier MUST be equipped with AR2\n");
 		}
 	}
 
@@ -2320,18 +2321,7 @@ void CNPC_Combine::HandleAnimEvent( animevent_t *pEvent )
 	{
 		if ( pEvent->event == COMBINE_AE_BEGIN_ALTFIRE )
 		{
-			if( FClassnameIs( GetActiveWeapon(), "weapon_ar2" ) )
-			{
-				EmitSound( "Weapon_CombineGuard.Special1" );
-			}
-			else if( FClassnameIs( GetActiveWeapon(), "weapon_smg1" ) )
-			{
-				EmitSound( "Weapon_SMG1.Double" );
-			}
-			else
-			{
-				EmitSound( "Weapon_CombineGuard.Special1" );
-			}
+			EmitSound( "Weapon_CombineGuard.Special1" );
 			handledEvent = true;
 		}
 		else if ( pEvent->event == COMBINE_AE_ALTFIRE )

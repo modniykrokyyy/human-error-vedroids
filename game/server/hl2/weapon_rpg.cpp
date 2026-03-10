@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -28,6 +28,8 @@
 #include "rumble_shared.h"
 #include "gamestats.h"
 
+#include "particle_parse.h"
+
 #ifdef PORTAL
 	#include "portal_util_shared.h"
 #endif
@@ -39,7 +41,8 @@
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
-#define	RPG_SPEED	1500
+#define	RPG_SPEED			1500
+#define RPG_SPEED_EXPLODE	 500
 
 static ConVar sk_apc_missile_damage("sk_apc_missile_damage", "15");
 ConVar rpg_missle_use_custom_detonators( "rpg_missle_use_custom_detonators", "1" );
@@ -100,7 +103,8 @@ CLaserDot *GetLaserDotList()
 BEGIN_DATADESC( CMissile )
 
 	DEFINE_FIELD( m_hOwner,					FIELD_EHANDLE ),
-	DEFINE_FIELD( m_hRocketTrail,			FIELD_EHANDLE ),
+	//DEFINE_FIELD( m_hRocketTrail,			FIELD_EHANDLE ),
+	DEFINE_FIELD( m_bRocketTrail,	FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_flAugerTime,			FIELD_TIME ),
 	DEFINE_FIELD( m_flMarkDeadTime,			FIELD_TIME ),
 	DEFINE_FIELD( m_flGracePeriodEndsAt,	FIELD_TIME ),
@@ -119,13 +123,18 @@ LINK_ENTITY_TO_CLASS( rpg_missile, CMissile );
 
 class CWeaponRPG;
 
+IMPLEMENT_SERVERCLASS_ST( CMissile, DT_Missile )
+	SendPropBool( SENDINFO( m_bRocketTrail )),
+END_SEND_TABLE()
+
 
 //-----------------------------------------------------------------------------
 // Constructor
 //-----------------------------------------------------------------------------
 CMissile::CMissile()
 {
-	m_hRocketTrail = NULL;
+	//m_hRocketTrail = NULL;
+	m_bRocketTrail = false;
 	m_bCreateDangerSounds = false;
 }
 
@@ -144,6 +153,9 @@ void CMissile::Precache( void )
 	PrecacheModel( "models/weapons/w_missile.mdl" );
 	PrecacheModel( "models/weapons/w_missile_launch.mdl" );
 	PrecacheModel( "models/weapons/w_missile_closed.mdl" );
+
+	//TERO: added
+	PrecacheParticleSystem( "he_missile" );
 }
 
 
@@ -316,10 +328,10 @@ void CMissile::ShotDown( void )
 
 	DispatchEffect( "RPGShotDown", data );
 
-	if ( m_hRocketTrail != NULL )
+/*	if ( m_hRocketTrail != NULL )
 	{
 		m_hRocketTrail->m_bDamaged = true;
-	}
+	}*/
 
 	SetThink( &CMissile::AugerThink );
 	SetNextThink( gpGlobals->curtime );
@@ -367,11 +379,11 @@ void CMissile::Explode( void )
 		DoExplosion();
 	}
 
-	if( m_hRocketTrail )
+	/*if( m_hRocketTrail )
 	{
 		m_hRocketTrail->SetLifetime(0.1f);
 		m_hRocketTrail = NULL;
-	}
+	}*/
 
 	if ( m_hOwner != NULL )
 	{
@@ -407,7 +419,7 @@ void CMissile::MissileTouch( CBaseEntity *pOther )
 //-----------------------------------------------------------------------------
 void CMissile::CreateSmokeTrail( void )
 {
-	if ( m_hRocketTrail )
+	/*if ( m_hRocketTrail )
 		return;
 
 	// Smoke trail.
@@ -426,7 +438,11 @@ void CMissile::CreateSmokeTrail( void )
 		
 		m_hRocketTrail->SetLifetime( 999 );
 		m_hRocketTrail->FollowEntity( this, "0" );
-	}
+	}*/
+
+	//TERO:
+
+	m_bRocketTrail = true;
 }
 
 
@@ -640,11 +656,13 @@ void CMissile::SeekThink( void )
 	VectorSubtract( targetPos, GetAbsOrigin(), vTargetDir );
 	float flDist = VectorNormalize( vTargetDir );
 
-	if( pLaserDot->GetTargetEntity() != NULL && flDist <= 240.0f && hl2_episodic.GetBool() )
+	if( pLaserDot->GetTargetEntity() != NULL && flDist <= 240.0f ) //&& hl2_episodic.GetBool() )
 	{
 		// Prevent the missile circling the Strider like a Halo in ep1_c17_06. If the missile gets within 20
 		// feet of a Strider, tighten up the turn speed of the missile so it can break the halo and strike. (sjb 4/27/2006)
-		if( pLaserDot->GetTargetEntity()->ClassMatches( "npc_strider" ) )
+		if( pLaserDot->GetTargetEntity()->ClassMatches( "npc_strider" ) || 
+			pLaserDot->GetTargetEntity()->ClassMatches( "npc_aliencontroller" ) ||
+			pLaserDot->GetTargetEntity()->ClassMatches( "npc_mantaray" ))
 		{
 			flHomingSpeed *= 1.75f;
 		}
@@ -678,9 +696,12 @@ void CMissile::SeekThink( void )
 	vNewVelocity *= flSpeed;
 	SetAbsVelocity( vNewVelocity );
 
-	if( GetAbsVelocity() == vec3_origin )
+	//DevMsg("Old speed %f, new speed %f\n", flSpeed, GetAbsVelocity().Length());
+
+	if( GetAbsVelocity() == vec3_origin || GetAbsVelocity().Length() < RPG_SPEED_EXPLODE )
 	{
 		// Strange circumstances have brought this missile to halt. Just blow it up.
+		//DevMsg("kapow\n");
 		Explode();
 		return;
 	}
@@ -1052,10 +1073,10 @@ void CAPCMissile::AugerDelay( float flDelay )
 
 void CAPCMissile::AugerStartThink()
 {
-	if ( m_hRocketTrail != NULL )
+	/*if ( m_hRocketTrail != NULL )
 	{
 		m_hRocketTrail->m_bDamaged = true;
-	}
+	}*/
 	m_flAugerTime = gpGlobals->curtime + random->RandomFloat( 1.0f, 2.0f );
 	SetThink( &CAPCMissile::AugerThink );
 	SetNextThink( gpGlobals->curtime );
@@ -2070,11 +2091,15 @@ int CWeaponRPG::WeaponRangeAttack1Condition( float flDot, float flDist )
 		flDist = vecToTarget.Length();
 	}
 
-	if ( flDist < MIN( m_fMinRange1, m_fMinRange2 ) )
+	if ( flDist < min( m_fMinRange1, m_fMinRange2 ) )
+	{
 		return COND_TOO_CLOSE_TO_ATTACK;
+	}
 
 	if ( m_flNextPrimaryAttack > gpGlobals->curtime )
+	{
 		return 0;
+	}
 
 	// See if there's anyone in the way!
 	CAI_BaseNPC *pOwner = GetOwner()->MyNPCPointer();
@@ -2091,8 +2116,19 @@ int CWeaponRPG::WeaponRangeAttack1Condition( float flDot, float flDist )
 		// Make sure I have a good 10 feet of wide clearance in front, or I'll blow my teeth out.
 		AI_TraceHull( vecMuzzle, vecMuzzle + vecShootDir * (10.0f*12.0f), Vector( -24, -24, -24 ), Vector( 24, 24, 24 ), MASK_NPCSOLID, NULL, &tr );
 
+		//TERO: added this to make sure we can still shoot when there's an npc
+		if ( tr.m_pEnt && 
+			 tr.m_pEnt->IsNPC() && 
+			 tr.m_pEnt->MyNPCPointer() && 
+			 pOwner->IsValidEnemy( tr.m_pEnt->MyNPCPointer()) )
+		{
+			return COND_CAN_RANGE_ATTACK1;
+		}
+
 		if( tr.fraction != 1.0 )
 		{
+		
+			//NDebugOverlay::Box( tr.endpos, Vector(10,10,10), Vector(-10,-10,-10), 255, 0, 0, 0, 5 );
 			return COND_WEAPON_SIGHT_OCCLUDED;
 		}
 	}
@@ -2255,6 +2291,12 @@ void EnableLaserDot( CBaseEntity *pLaserDot, bool bEnable )
 	{
 		pDot->TurnOff();
 	}
+}
+
+bool DoesLaserDotHaveTarget( CBaseEntity *pLaserDot )
+{
+	CLaserDot *pDot = assert_cast< CLaserDot* >(pLaserDot );
+	return (pDot->GetTargetEntity()!=NULL);
 }
 
 CLaserDot::CLaserDot( void )

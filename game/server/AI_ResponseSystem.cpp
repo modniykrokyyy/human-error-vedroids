@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright © 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -44,6 +44,7 @@ inline static char *CopyString( const char *in )
 	return out;
 }
 
+#pragma pack(1)
 class Matcher
 {
 public:
@@ -541,6 +542,7 @@ struct Rule
 	bool				m_bMatchOnce : 1;
 	bool				m_bEnabled : 1;
 };
+#pragma pack()
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -644,7 +646,7 @@ public:
 
 		if ( !p )
 		{
-			Error( "AI_ResponseSystem:  Unxpected TokenWaiting() with NULL buffer in %p", m_ScriptStack[ 0 ].name );
+			Error( "AI_ResponseSystem:  Unxpected TokenWaiting() with NULL buffer in %s", m_ScriptStack[ 0 ].name );
 			return false;
 		}
 
@@ -1183,7 +1185,7 @@ float CResponseSystem::ScoreCriteriaAgainstRuleCriteria( const AI_CriteriaSet& s
 		if ( verbose )
 		{
 			DevMsg( "matched, weight %4.2f (s %4.2f x c %4.2f)",
-				score, w, c->weight.GetFloat() );
+				score, w, c->weight );
 		}
 	}
 	else
@@ -1226,7 +1228,7 @@ float CResponseSystem::ScoreCriteriaAgainstRule( const AI_CriteriaSet& set, int 
 	{
 		if ( bBeingWatched )
 		{
-			DevMsg("Rule '%s' is disabled.\n", m_Rules.GetElementName( irule ) );
+			DevMsg("Rule '%s' is disabled.\n" );
 		}
 		return 0.0f;
 	}
@@ -1572,7 +1574,7 @@ void CResponseSystem::DescribeResponseGroup( ResponseGroup *group, int selected,
 			i == selected ? "-> " : "   ",
 			AI_Response::DescribeResponse( r->GetType() ),
 			r->value,
-			r->weight.GetFloat() );
+			r->weight );
 	}
 }
 
@@ -1735,7 +1737,7 @@ bool CResponseSystem::FindBestResponse( const AI_CriteriaSet& set, AI_Response& 
 	bool showResult = ( iDbgResponse == 1 || iDbgResponse == 2 );
 
 	// Look for match. verbose mode used to be at level 2, but disabled because the writers don't actually care for that info.
-	int bestRule = FindBestMatchingRule( set, iDbgResponse == 3 ); 
+	int bestRule = FindBestMatchingRule( set, false ); 
 
 	ResponseType_t responseType = RESPONSE_NONE;
 	AI_ResponseParams rp;
@@ -3034,9 +3036,6 @@ IResponseSystem *g_pResponseSystem = &defaultresponsesytem;
 
 CON_COMMAND( rr_reloadresponsesystems, "Reload all response system scripts." )
 {
-	if ( !UTIL_IsCommandIssuedByServerAdmin() )
-		return;
-
 	defaultresponsesytem.ReloadAllResponseSystems();
 
 #if defined( TF_DLL )

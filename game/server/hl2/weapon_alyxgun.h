@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:
 //
@@ -8,6 +8,7 @@
 #define WEAPON_ALYXGUN_H
 
 #include "basehlcombatweapon.h"
+#include "Human_Error/hlss_weapon_id.h"
 
 #if defined( _WIN32 )
 #pragma once
@@ -23,6 +24,8 @@ public:
 	~CWeaponAlyxGun();
 
 	DECLARE_SERVERCLASS();
+
+	virtual const int		HLSS_GetWeaponId() { return HLSS_WEAPON_ID_ALYXGUN; }
 	
 	void	Precache( void );
 
@@ -30,6 +33,10 @@ public:
 	virtual int		GetMaxBurst( void ) { return 7; }
 	virtual float	GetMinRestTime( void );
 	virtual float	GetMaxRestTime( void );
+
+	virtual void	SecondaryAttack( void );
+
+	bool Reload( void );
 
 	virtual void Equip( CBaseCombatCharacter *pOwner );
 
@@ -45,11 +52,11 @@ public:
 	void Operator_ForceNPCFire( CBaseCombatCharacter  *pOperator, bool bSecondary );
 	void Operator_HandleAnimEvent( animevent_t *pEvent, CBaseCombatCharacter *pOperator );
 
-	virtual void SetPickupTouch( void )
+	/*virtual void SetPickupTouch( void )
 	{
 		// Alyx gun cannot be picked up
 		SetTouch(NULL);
-	}
+	}*/
 
 	float m_flTooCloseTimer;
 

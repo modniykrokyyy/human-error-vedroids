@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -36,6 +36,7 @@
 #define SF_DOOR_SILENT_TO_NPCS		16384	// Does not alert NPC's when opened.
 #define SF_DOOR_IGNORE_USE			32768	// Completely ignores player +use commands.
 #define SF_DOOR_NEW_USE_RULES		65536	// For func_door entities, behave more like prop_door_rotating with respect to +USE (changelist 242482)
+#define SF_BREAKABLE_BY_AGRUNTS	   131072	// HUMAN ERROR: Is this door breakable by Alien Grunts? 
 
 
 enum FuncDoorSpawnPos_t
@@ -114,7 +115,6 @@ public:
 	bool	m_bDoorGroup;
 	bool	m_bLocked;				// Whether the door is locked
 	bool	m_bIgnoreDebris;
-	bool	m_bIgnoreNonPlayerEntsOnBlock;	// Non-player entities should never block.  This variable needs more letters.
 	
 	FuncDoorSpawnPos_t m_eSpawnPosition;
 

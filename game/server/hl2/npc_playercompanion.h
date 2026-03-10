@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: Base class for humanoid NPCs intended to fight along side player in close
 // environments
@@ -16,6 +16,8 @@
 #include "ai_behavior_lead.h"
 #include "ai_behavior_actbusy.h"
 #include "ai_behavior_fear.h"
+#include "weapon_flaregun.h"
+#include "Human_Error/hlss_minershat.h"
 
 #ifdef HL2_EPISODIC
 #include "ai_behavior_operator.h"
@@ -96,6 +98,11 @@ class CNPC_PlayerCompanion : public CAI_PlayerAlly
 	DECLARE_CLASS( CNPC_PlayerCompanion, CAI_PlayerAlly );
 
 public:
+	CNPC_PlayerCompanion()
+		: m_bMinersHat( false ) 
+	{ 
+	}
+
 	//---------------------------------
 	bool			CreateBehaviors();
 	void			Precache();
@@ -109,7 +116,7 @@ public:
 	int 			ObjectCaps();
 	bool 			ShouldAlwaysThink();
 
-	Disposition_t	IRelationType( CBaseEntity *pTarget );
+	//Disposition_t	IRelationType( CBaseEntity *pTarget );	//TERO: removed by me
 	
 	bool			IsSilentSquadMember() const;
 
@@ -333,13 +340,15 @@ protected:
 		NEXT_TASK,
 	};
 
+public:
+	bool			m_bMovingAwayFromPlayer;	//TERO: I made this public... I am not sure if it's a bad thing...
+
 private:
 	void SetupCoverSearch( CBaseEntity *pEntity );
 	void CleanupCoverSearch();
 
 	//-----------------------------------------------------
 	
-	bool			m_bMovingAwayFromPlayer;
 	bool			m_bWeightPathsInCover;
 
 	enum eCoverType
@@ -356,6 +365,17 @@ private:
 
 	// Derived classes should not use the expresser directly
 	virtual CAI_Expresser *GetExpresser()	{ return BaseClass::GetExpresser(); }
+
+public:
+	bool						m_bMinersHat;
+	CHandle<CHLSS_MinersHat>	m_hMinersHat;
+
+	void					AddHat();
+	void					RemoveHat();
+
+	//virtual void			OnRestore();
+	virtual void			UpdateOnRemove();
+	virtual void			Event_Killed( const CTakeDamageInfo &info );
 
 protected:
 	//-----------------------------------------------------

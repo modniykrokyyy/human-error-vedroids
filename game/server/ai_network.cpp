@@ -648,6 +648,186 @@ IterationRetval_t CAI_Network::EnumElement( IHandleEntity *pHandleEntity )
 
 //=============================================================================
 
+//=============================================================================
+//	HALF-LIFE SHORT STORIES DYNAMIC NPC SPAWNING
+//=============================================================================
+
+int	CAI_Network::NodeInsideBrush( CAI_BaseNPC* pNPC, CBaseEntity *pBrush, INearestNodeFilter *pFilter, int maxListCount )
+{
+	//AI_PROFILE_SCOPE( CAI_Network_NearestNodeToNPCAtPoint );
+	
+	// --------------------------------
+	//  Check if network has no nodes or if the brush is NULL
+	// --------------------------------
+	if (m_iNumNodes == 0)
+	{
+		//DevMsg("Zero nodes\n");
+		return NO_NODE;
+	}
+
+	if (pBrush == NULL)
+	{
+		//DevMsg("Brush is NULL\n");
+		return NO_NODE;
+	}
+
+	// ---------------------------------------------------------------
+	// First get nodes distances and eliminate those that are beyond 
+	// the maximum allowed distance for local movements
+	// ---------------------------------------------------------------
+	CNodeFilter filter( pNPC, Vector(0,0,0) );
+
+	if (maxListCount == -1)
+	{
+		maxListCount = m_iNumNodes;
+	}
+
+	//AI_NearNode_t *pBuffer = (AI_NearNode_t *)stackalloc( sizeof(AI_NearNode_t) * MAX_NEAR_NODES );
+	CNodeList list; //( pBuffer, HLSS_DNS_MAX_NEAR_NODES );
+
+	ListNodesInBrush( list, maxListCount, pBrush, &filter );
+
+	// --------------------------------------------------------------
+	//  Now find a reachable node searching the close nodes first
+	// --------------------------------------------------------------
+	//int smallestVisibleID = NO_NODE;
+
+	CNodeList usable;
+
+	//DevMsg("nodes in the brush %d, ", list.Count());
+
+	for( ;list.Count(); list.RemoveAtHead() )
+	{
+		int check = list.ElementAtHead().nodeIndex;
+
+		// Check that this node is usable by the current hull size
+		if ( pNPC && !pNPC->GetNavigator()->CanFitAtNode(check))
+			continue;
+
+		if ( pFilter )
+		{
+			if ( !pFilter->IsValid( m_pAInode[check] ) )
+			{
+				if ( !pFilter->ShouldContinue() )
+					break;
+				continue;
+			}
+		}
+
+		usable.Insert( list.ElementAtHead() );
+	}
+
+	//DevMsg("usable count: %d, ", usable.Count());
+
+	if (usable.Count() > 0)
+	{
+		int iRandom = random->RandomInt( 0, usable.Count()-1 );
+
+		//DevMsg("picking random %d, ", iRandom);
+
+		int iNode = usable.Element(iRandom).nodeIndex;
+
+		//DevMsg("node id %d\n", iNode);
+
+		return iNode;
+	}
+	else
+	{
+		//DevMsg("no node\n");
+	}
+
+	return NO_NODE;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Build a list of nearby nodes sorted by distance
+// Input  : &list - 
+//			maxListCount - 
+//			*pFilter - 
+// Output : int - count of list
+//-----------------------------------------------------------------------------
+
+int CAI_Network::ListNodesInBrush( CNodeList &list, int maxListCount, CBaseEntity *pBrush, INodeListFilter *pFilter )
+{
+	CNodeList result;
+	
+	//result.SetLessFunc( CNodeList::RevIsLowerPriority );
+	
+	// NOTE: maxListCount must be > 0 or this will crash
+	bool full = false;
+
+// UNDONE: Store the nodes in a tree and query the tree instead of the entire list!!!
+	for ( int node = 0; node < m_iNumNodes; node++ )
+	{
+		CAI_Node *pNode = m_pAInode[node];
+		const Vector &origin = pNode->GetOrigin();
+
+		int contents = enginetrace->GetPointContents_Collideable( pBrush->GetCollideable(), origin );
+		if( !(contents & CONTENTS_SOLID) )
+		{
+			continue;
+		}
+
+		if ( !pFilter->NodeIsValid(*pNode) )
+		{
+			continue;
+		}
+
+		if ( !full )
+		{
+			if ( full )
+				result.RemoveAtHead();
+
+			result.Insert( AI_NearNode_t(node, 0) );
+	
+			full = (result.Count() == maxListCount);
+		}
+	}
+	
+	list.RemoveAll();
+	while ( result.Count() )
+	{
+		list.Insert( result.ElementAtHead() );
+		result.RemoveAtHead();
+	}
+
+	return list.Count();
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Build a list of nearby nodes sorted by distance
+// Input  : &list - 
+//			maxListCount - 
+//			*pFilter - 
+// Output : int - count of list
+//-----------------------------------------------------------------------------
+
+int CAI_Network::GetNodeCountInBrush( CBaseEntity *pBrush, int iNavType )
+{
+	int iCount = 0;
+
+	for ( int node = 0; node < m_iNumNodes; node++ )
+	{
+		CAI_Node *pNode = m_pAInode[node];
+		const Vector &origin = pNode->GetOrigin();
+
+		int contents = enginetrace->GetPointContents_Collideable( pBrush->GetCollideable(), origin );
+		if( !(contents & CONTENTS_SOLID) )
+		{
+			continue;
+		}
+
+		if ( iNavType != NAV_NONE && iNavType != pNode->GetType() )
+		{
+			continue;
+		}
+
+		iCount++;
+	}
+
+	return iCount;
+}
+
 void CAI_Network::OnEntityDeleted( CBaseEntity *pEntity )
 {
 	if( pEntity->IsNPC() )

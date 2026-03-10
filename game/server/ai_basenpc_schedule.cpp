@@ -158,7 +158,7 @@ bool CAI_BaseNPC::SetSchedule( int localScheduleID )
 // to 0
 //=========================================================
 #define SCHEDULE_HISTORY_SIZE	10
-void CAI_BaseNPC::SetSchedule( CAI_Schedule *pNewSchedule )
+void CAI_BaseNPC::SetSchedule( CAI_Schedule *pNewSchedule, bool DontClearGoal )
 {
 	Assert( pNewSchedule != NULL );
 	
@@ -174,7 +174,8 @@ void CAI_BaseNPC::SetSchedule( CAI_Schedule *pNewSchedule )
 	if ( bCondInPVS )
 		SetCondition( COND_IN_PVS );
 	m_bConditionsGathered = false;
-	GetNavigator()->ClearGoal();
+	if (!DontClearGoal)
+		GetNavigator()->ClearGoal();
 	m_InverseIgnoreConditions.SetAll();
 	Forget( bits_MEMORY_TURNING );
 
@@ -4439,6 +4440,9 @@ int CAI_BaseNPC::SelectAlertSchedule()
 			  HasCondition ( COND_HEAR_BULLET_IMPACT ) ||
 			  HasCondition ( COND_HEAR_COMBAT ) )
 	{
+		//TERO: I am not sure if this is that good idea, it might lead the enemies away from what the mapper wants them to stay
+		//return SCHED_INVESTIGATE_SOUND;
+
 		return SCHED_ALERT_FACE_BESTSOUND;
 	}
 

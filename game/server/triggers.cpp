@@ -303,19 +303,6 @@ int CBaseTrigger::DrawDebugTextOverlays(void)
 	return text_offset;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Return true if the specified point is within this zone
-//-----------------------------------------------------------------------------
-bool CBaseTrigger::PointIsWithin( const Vector &vecPoint )
-{
-	Ray_t ray;
-	trace_t tr;
-	ICollideable *pCollide = CollisionProp();
-	ray.Init( vecPoint, vecPoint );
-	enginetrace->ClipRayToCollideable( ray, MASK_ALL, pCollide, &tr );
-	return ( tr.startsolid );
-}
-
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -392,37 +379,24 @@ bool CBaseTrigger::PassesTriggerFilters(CBaseEntity *pOther)
 
 		bool bOtherIsPlayer = pOther->IsPlayer();
 
-		if ( bOtherIsPlayer )
+		if ( HasSpawnFlags(SF_TRIGGER_ONLY_CLIENTS_IN_VEHICLES) && bOtherIsPlayer )
 		{
-			CBasePlayer *pPlayer = (CBasePlayer*)pOther;
-			if ( !pPlayer->IsAlive() )
+			if ( !((CBasePlayer*)pOther)->IsInAVehicle() )
 				return false;
 
-			if ( HasSpawnFlags(SF_TRIGGER_ONLY_CLIENTS_IN_VEHICLES) )
-			{
-				if ( !pPlayer->IsInAVehicle() )
-					return false;
+			// Make sure we're also not exiting the vehicle at the moment
+			IServerVehicle *pVehicleServer = ((CBasePlayer*)pOther)->GetVehicle();
+			if ( pVehicleServer == NULL )
+				return false;
+			
+			if ( pVehicleServer->IsPassengerExiting() )
+				return false;
+		}
 
-				// Make sure we're also not exiting the vehicle at the moment
-				IServerVehicle *pVehicleServer = pPlayer->GetVehicle();
-				if ( pVehicleServer == NULL )
-					return false;
-
-				if ( pVehicleServer->IsPassengerExiting() )
-					return false;
-			}
-
-			if ( HasSpawnFlags(SF_TRIGGER_ONLY_CLIENTS_OUT_OF_VEHICLES) )
-			{
-				if ( pPlayer->IsInAVehicle() )
-					return false;
-			}
-
-			if ( HasSpawnFlags( SF_TRIGGER_DISALLOW_BOTS ) )
-			{
-				if ( pPlayer->IsFakeClient() )
-					return false;
-			}
+		if ( HasSpawnFlags(SF_TRIGGER_ONLY_CLIENTS_OUT_OF_VEHICLES) && bOtherIsPlayer )
+		{
+			if ( ((CBasePlayer*)pOther)->IsInAVehicle() )
+				return false;
 		}
 
 		CBaseFilter *pFilter = m_hFilter.Get();
@@ -508,14 +482,6 @@ void CBaseTrigger::EndTouch(CBaseEntity *pOther)
 
 			if ( !hOther )
 			{
-				m_hTouchingEntities.Remove( i );
-			}
-			else if ( hOther->IsPlayer() && !hOther->IsAlive() )
-			{
-#ifdef STAGING_ONLY
-				AssertMsg( 0, CFmtStr( "Dead player [%s] is still touching this trigger at [%f %f %f]", hOther->GetEntityName().ToCStr(), XYZ( hOther->GetAbsOrigin() ) ) );
-				Warning( "Dead player [%s] is still touching this trigger at [%f %f %f]", hOther->GetEntityName().ToCStr(), XYZ( hOther->GetAbsOrigin() ) );
-#endif
 				m_hTouchingEntities.Remove( i );
 			}
 			else
@@ -2517,8 +2483,6 @@ LINK_ENTITY_TO_CLASS( trigger_autosave, CTriggerSave );
 //-----------------------------------------------------------------------------
 void CTriggerSave::Spawn( void )
 {
-	m_minHitPoints = 1;
-
 	if ( g_pGameRules->IsDeathmatch() )
 	{
 		UTIL_Remove( this );
@@ -2536,7 +2500,7 @@ void CTriggerSave::Spawn( void )
 void CTriggerSave::Touch( CBaseEntity *pOther )
 {
 	// Only save on clients
-	if ( !pOther->IsPlayer() || !pOther->IsAlive() )
+	if ( !pOther->IsPlayer() )
 		return;
 
 	if ( m_fDangerousTimer != 0.0f )
@@ -3058,7 +3022,7 @@ void CTriggerCamera::Enable( void )
 			else
 			{
 				m_iAttachmentIndex = m_hTarget->GetBaseAnimating()->LookupAttachment( STRING(m_iszTargetAttachment) );
-				if ( m_iAttachmentIndex <= 0 )
+				if ( !m_iAttachmentIndex )
 				{
 					Warning("%s could not find attachment %s on target %s.\n", GetClassname(), STRING(m_iszTargetAttachment), STRING(m_hTarget->GetEntityName()) );
 				}
@@ -3110,7 +3074,9 @@ void CTriggerCamera::Enable( void )
 	{
 		UTIL_SetOrigin( this, m_hPlayer->EyePosition() );
 		SetLocalAngles( QAngle( m_hPlayer->GetLocalAngles().x, m_hPlayer->GetLocalAngles().y, 0 ) );
-		SetAbsVelocity( m_hPlayer->GetAbsVelocity() );
+		
+		//TERO: undone by me
+		//SetAbsVelocity( m_hPlayer->GetAbsVelocity() );
 	}
 	else
 	{
@@ -3160,9 +3126,10 @@ void CTriggerCamera::Disable( void )
 		{
 			((CBasePlayer*)m_hPlayer.Get())->GetActiveWeapon()->RemoveEffects( EF_NODRAW );
 		}
-		//return the player to previous takedamage state
-		m_hPlayer->m_takedamage = m_nOldTakeDamage;
 	}
+
+	//return the player to previous takedamage state
+	m_hPlayer->m_takedamage = m_nOldTakeDamage;
 
 	m_state = USE_OFF;
 	m_flReturnTime = gpGlobals->curtime;
@@ -3450,7 +3417,7 @@ static void PlayCDTrack( int iTrack )
 	// UNDONE: Move this to engine sound
 	if ( iTrack < -1 || iTrack > 30 )
 	{
-		Warning( "TriggerCDAudio - Track %d out of range\n", iTrack );
+		Warning( "TriggerCDAudio - Track %d out of range\n" );
 		return;
 	}
 
@@ -3460,7 +3427,10 @@ static void PlayCDTrack( int iTrack )
 	}
 	else
 	{
-		engine->ClientCommand ( pClient, "cd play %3d\n", iTrack);
+		char string [ 64 ];
+
+		Q_snprintf( string,sizeof(string), "cd play %3d\n", iTrack );
+		engine->ClientCommand ( pClient, string);
 	}
 }
 
@@ -3688,7 +3658,7 @@ public:
 			return IMotionEvent::SIM_NOTHING;
 
 		// Get a cosine modulated noise between 5 and 20 that is object specific
-		int nNoiseMod = 5+(intp)pObject%15; //
+		int nNoiseMod = 5+(intp)pObject%15; // 
 
 		// Turn wind yaw direction into a vector and add noise
 		QAngle vWindAngle = vec3_angle;	
@@ -4623,8 +4593,7 @@ void CTriggerVPhysicsMotion::StartTouch( CBaseEntity *pOther )
 #ifndef _XBOX
 	if ( m_ParticleTrail.m_strMaterialName != NULL_STRING )
 	{
-		CEntityParticleTrail *pTrail = CEntityParticleTrail::Create( pOther, m_ParticleTrail, this ); 
-		pTrail->SetShouldDeletedOnChangelevel( true );
+		CEntityParticleTrail::Create( pOther, m_ParticleTrail, this ); 
 	}
 #endif
 
@@ -4699,7 +4668,7 @@ IMotionEvent::simresult_e CTriggerVPhysicsMotion::Simulate( IPhysicsMotionContro
 	if ( HasGravityScale() )
 	{
 		// assume object already has 1.0 gravities applied to it, so apply the additional amount
-		linear.z -= (m_gravityScale-1) * GetCurrentGravity();
+		linear.z -= (m_gravityScale-1) * sv_gravity.GetFloat();
 	}
 
 	if ( HasLinearForce() )

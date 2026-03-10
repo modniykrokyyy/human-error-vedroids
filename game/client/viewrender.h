@@ -26,6 +26,7 @@ class IClientVehicle;
 class C_PointCamera;
 class C_EnvProjectedTexture;
 class IScreenSpaceEffect;
+enum ScreenSpaceEffectType_t : int; //enum ScreenSpaceEffectType_t;
 class CClientViewSetup;
 class CViewRender;
 struct ClientWorldListInfo_t;
@@ -432,6 +433,8 @@ private:
 	void			ViewDrawScene( bool bDrew3dSkybox, SkyboxVisibility_t nSkyboxVisible, const CViewSetup &view, int nClearFlags, view_id_t viewID, bool bDrawViewModel = false, int baseDrawFlags = 0, ViewCustomVisibility_t *pCustomVisibility = NULL );
 
 	void			DrawMonitors( const CViewSetup &cameraView );
+	void			DrawManhackScreen( const CViewSetup &cameraView );
+	void			DrawCameraScreen( const CViewSetup &cameraView );
 
 	bool			DrawOneMonitor( ITexture *pRenderTarget, int cameraNum, C_PointCamera *pCameraEnt, const CViewSetup &cameraView, C_BasePlayer *localPlayer, 
 						int x, int y, int width, int height );
@@ -499,10 +502,6 @@ private:
 
 	int					m_BaseDrawFlags;	// Set in ViewDrawScene and OR'd into m_DrawFlags as it goes.
 	C_BaseEntity		*m_pCurrentlyDrawingEntity;
-
-#if defined( CSTRIKE_DLL )
-	float				m_flLastFOV;
-#endif
 
 #ifdef PORTAL
 	friend class CPortalRender; //portal drawing needs muck with views in weird ways

@@ -129,26 +129,29 @@ void C_NPC_Manhack::SoundInit( void )
 	// play an engine start sound!!
 	CPASAttenuationFilter filter( this );
 
+	//TERO: I lowered the volume from 0.7 to 0.5
 	// Bring up the engine looping sound.
 	if( !m_pEngineSound1 )
 	{
 		m_pEngineSound1 = CSoundEnvelopeController::GetController().SoundCreate( filter, entindex(), "NPC_Manhack.EngineSound1" );
 		CSoundEnvelopeController::GetController().Play( m_pEngineSound1, 0.0, m_nEnginePitch1 );
-		CSoundEnvelopeController::GetController().SoundChangeVolume( m_pEngineSound1, 0.7, 2.0 );
+		CSoundEnvelopeController::GetController().SoundChangeVolume( m_pEngineSound1, 0.4, 2.0 );
 	}
 
+	//TERO: I lowered the volume from 0.7 to 0.5
 	if( !m_pEngineSound2 )
 	{
 		m_pEngineSound2 = CSoundEnvelopeController::GetController().SoundCreate( filter, entindex(), "NPC_Manhack.EngineSound2" );
 		CSoundEnvelopeController::GetController().Play( m_pEngineSound2, 0.0, m_nEnginePitch2 );
-		CSoundEnvelopeController::GetController().SoundChangeVolume( m_pEngineSound2, 0.7, 2.0 );
+		CSoundEnvelopeController::GetController().SoundChangeVolume( m_pEngineSound2, 0.4, 2.0 );
 	}
 
+	//TERO: I lowered the volume from 0.7 to 0.5
 	if( !m_pBladeSound )
 	{
 		m_pBladeSound = CSoundEnvelopeController::GetController().SoundCreate( filter, entindex(), "NPC_Manhack.BladeSound" );
 		CSoundEnvelopeController::GetController().Play( m_pBladeSound, 0.0, m_nEnginePitch1 );
-		CSoundEnvelopeController::GetController().SoundChangeVolume( m_pBladeSound, 0.7, 2.0 );
+		CSoundEnvelopeController::GetController().SoundChangeVolume( m_pBladeSound, 0.4, 2.0 );
 	}
 }
 

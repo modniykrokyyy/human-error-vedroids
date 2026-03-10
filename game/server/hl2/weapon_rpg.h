@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -16,6 +16,8 @@
 #include "Sprite.h"
 #include "npcevent.h"
 #include "beam_shared.h"
+#include "globalstate.h"
+#include "Human_Error/hlss_weapon_id.h"
 
 class CWeaponRPG;
 class CLaserDot;
@@ -27,6 +29,7 @@ class RocketTrail;
 class CMissile : public CBaseCombatCharacter
 {
 	DECLARE_CLASS( CMissile, CBaseCombatCharacter );
+	DECLARE_SERVERCLASS();
 
 public:
 	static const int EXPLOSION_RADIUS = 200;
@@ -80,7 +83,8 @@ protected:
 	// Gets the shooting position 
 	void GetShootPosition( CLaserDot *pLaserDot, Vector *pShootPosition );
 
-	CHandle<RocketTrail>	m_hRocketTrail;
+	//CHandle<RocketTrail>	m_hRocketTrail;
+	CNetworkVar( bool,  m_bRocketTrail); //TERO: ya
 	float					m_flAugerTime;		// Amount of time to auger before blowing up anyway
 	float					m_flMarkDeadTime;
 	float					m_flDamage;
@@ -108,6 +112,7 @@ private:
 CBaseEntity *CreateLaserDot( const Vector &origin, CBaseEntity *pOwner, bool bVisibleDot );
 void SetLaserDotTarget( CBaseEntity *pLaserDot, CBaseEntity *pTarget );
 void EnableLaserDot( CBaseEntity *pLaserDot, bool bEnable );
+bool DoesLaserDotHaveTarget( CBaseEntity *pLaserDot );
 
 
 //-----------------------------------------------------------------------------
@@ -128,7 +133,13 @@ public:
 	void	ExplodeDelay( float flDelayTime );
 	void	DisableGuiding();
 #if defined( HL2_DLL )
-	virtual Class_T Classify ( void ) { return CLASS_COMBINE; }
+	virtual Class_T Classify ( void ) 
+	{ 
+		if (GetOwnerEntity() && GetOwnerEntity()->Classify() == CLASS_AIR_DEFENSE_HACKED)
+			return CLASS_COMBINE_HACKED;
+		else
+			return CLASS_COMBINE; 
+	}
 #endif
 
 	void	AimAtSpecificTarget( CBaseEntity *pTarget );
@@ -180,6 +191,8 @@ public:
 	DECLARE_SERVERCLASS();
 
 	void	Precache( void );
+
+	virtual const int		HLSS_GetWeaponId() { return HLSS_WEAPON_ID_RPG; }
 
 	void	PrimaryAttack( void );
 	virtual float GetFireRate( void ) { return 1; };

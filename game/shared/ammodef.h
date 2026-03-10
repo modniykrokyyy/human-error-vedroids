@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose:		Holds defintion for game ammo types
 //
@@ -26,6 +26,9 @@ struct Ammo_t
 	int					nMaxSplashSize;
 
 	int					nFlags;
+
+	wchar_t				m_Icon[2];
+	wchar_t				m_Title[16]; //TERO: used to be 12
 
 	// Values for player/NPC damage and carrying capability
 	// If the integers are set, they override the CVars
@@ -83,14 +86,16 @@ public:
 	int					MaxSplashSize(int nAmmoIndex);
 	int					Flags(int nAmmoIndex);
 
-	void				AddAmmoType(char const* name, int damageType, int tracerType, int plr_dmg, int npc_dmg, int carry, float physicsForceImpulse, int nFlags, int minSplashSize = 4, int maxSplashSize = 8 );
-	void				AddAmmoType(char const* name, int damageType, int tracerType, char const* plr_cvar, char const* npc_var, char const* carry_cvar, float physicsForceImpulse, int nFlags, int minSplashSize = 4, int maxSplashSize = 8 );
+	void				AddAmmoType(char const* name, int damageType, int tracerType, int plr_dmg, int npc_dmg, int carry, float physicsForceImpulse, int nFlags, wchar_t *icon, wchar_t *AmmoTitle, int minSplashSize = 4, int maxSplashSize = 8 );
+	void				AddAmmoType(char const* name, int damageType, int tracerType, char const* plr_cvar, char const* npc_var, char const* carry_cvar, float physicsForceImpulse, int nFlags, wchar_t *icon, wchar_t *AmmoTitle, int minSplashSize = 4, int maxSplashSize = 8 );
 
 	CAmmoDef(void);
 	virtual ~CAmmoDef( void );
 
+	//TERO: for the new ammo hud
+
 private:
-	bool				AddAmmoType(char const* name, int damageType, int tracerType, int nFlags, int minSplashSize, int maxSplashSize );
+	bool				AddAmmoType(char const* name, int damageType, int tracerType, int nFlags, int minSplashSize, int maxSplashSize, wchar_t *icon, wchar_t *AmmoTitle );
 };
 
 

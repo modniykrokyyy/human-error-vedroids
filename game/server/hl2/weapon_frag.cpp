@@ -1,4 +1,4 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
+//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: 
 //
@@ -9,6 +9,7 @@
 #include "player.h"
 #include "gamerules.h"
 #include "grenade_frag.h"
+#include "Human_Error/grenade_smoke.h"
 #include "npcevent.h"
 #include "engine/IEngineSound.h"
 #include "items.h"
@@ -56,16 +57,17 @@ public:
 	bool	ShouldDisplayHUDHint() { return true; }
 
 private:
-	void	ThrowGrenade( CBasePlayer *pPlayer );
-	void	RollGrenade( CBasePlayer *pPlayer );
-	void	LobGrenade( CBasePlayer *pPlayer );
-	// check a throw from vecSrc.  If not valid, move the position back along the line to vecEye
-	void	CheckThrowPosition( CBasePlayer *pPlayer, const Vector &vecEye, Vector &vecSrc );
 
-	bool	m_bRedraw;	//Draw the weapon again after throwing a grenade
+	void	CheckThrowPosition( CBasePlayer *pPlayer, const Vector &vecEye, Vector &vecSrc ); 
+
+	virtual	void	ThrowGrenade( CBasePlayer *pPlayer );
+	virtual	void	RollGrenade( CBasePlayer *pPlayer );
+	virtual	void	LobGrenade( CBasePlayer *pPlayer );
+	// check a throw from vecSrc.  If not valid, move the position back along the line to vecEye
 	
 	int		m_AttackPaused;
 	bool	m_fDrawbackFinished;
+	bool	m_bRedraw;	//Draw the weapon again after throwing a grenade
 
 	DECLARE_ACTTABLE();
 
@@ -477,4 +479,3 @@ void CWeaponFrag::RollGrenade( CBasePlayer *pPlayer )
 	m_iPrimaryAttacks++;
 	gamestats->Event_WeaponFired( pPlayer, true, GetClassname() );
 }
-

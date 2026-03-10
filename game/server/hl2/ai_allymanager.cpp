@@ -7,7 +7,7 @@
 #include "cbase.h"
 #include "entitylist.h"
 #include "ai_basenpc.h"
-#include "npc_citizen17.h"
+#include "npc_metropolice.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -143,7 +143,7 @@ void CAI_AllyManager::CountAllies( int *pTotal, int *pMedics )
 				continue;
 
 			// They only count if I can use them.
-			if( ppAIs[i]->HasSpawnFlags(SF_CITIZEN_NOT_COMMANDABLE) )
+			if( ppAIs[i]->HasSpawnFlags(SF_METROPOLICE_NOT_COMMANDABLE) )
 				continue;
 			
 			// They only count if I can use them.
@@ -157,16 +157,16 @@ void CAI_AllyManager::CountAllies( int *pTotal, int *pMedics )
 				  fabsf( ppAIs[i]->GetAbsOrigin().z - vPlayerPos.z ) > 192 ) )
 				continue;
 
-			if( FClassnameIs( ppAIs[i], "npc_citizen" ) ) 
+			if( FClassnameIs( ppAIs[i], "npc_metropolice" ) ) 
 			{  
-				CNPC_Citizen *pCitizen = assert_cast<CNPC_Citizen *>(ppAIs[i]);
+				CNPC_MetroPolice *pCitizen = assert_cast<CNPC_MetroPolice *>(ppAIs[i]);
 				if ( !pCitizen->CanJoinPlayerSquad() )
 					continue;
 
 				if ( pCitizen->WasInPlayerSquad() && !pCitizen->IsInPlayerSquad() )
 					continue;
 
-				if ( ppAIs[i]->HasSpawnFlags( SF_CITIZEN_MEDIC ) )
+				if ( ppAIs[i]->HasSpawnFlags( SF_METROPOLICE_MEDIC ) )
 					(*pMedics)++;
 			}
 

@@ -160,6 +160,11 @@ public:
 	DECLARE_NETWORKCLASS();
 	DECLARE_PREDICTABLE();
 
+	//TERO: Added by moi
+	virtual bool			IsWeaponManhack() { return false; }
+	virtual bool			IsWeaponCamera() { return false; }
+	virtual const int		HLSS_GetWeaponId() { return 0; }
+
 							CBaseCombatWeapon();
 	virtual 				~CBaseCombatWeapon();
 

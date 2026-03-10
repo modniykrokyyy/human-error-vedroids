@@ -2705,6 +2705,17 @@ Disposition_t CBaseCombatCharacter::GetDefaultRelationshipDisposition( Class_T n
 	return m_DefaultRelationship[Classify()][nClassTarget].disposition;
 }
 
+//-----------------------------------------------------------------------------
+// Purpose: Fetch the default (ignore ai_relationship changes) relationship, TERO
+// Input  :
+// Output :
+//-----------------------------------------------------------------------------
+Disposition_t CBaseCombatCharacter::GetDefaultRelationshipDispositionBetweenClasses( Class_T nClassTarget1, Class_T nClassTarget2 )
+{
+	Assert( m_DefaultRelationship != NULL );
+
+	return m_DefaultRelationship[nClassTarget1][nClassTarget2].disposition;
+}
 
 //-----------------------------------------------------------------------------
 // Purpose: describes the relationship between two types of NPC.
