@@ -203,6 +203,9 @@ public:
 	void SetAlpha(int alpha);	// sets alpha modifier for panel and all child panels [0..255]
 	int GetAlpha();	// returns the current alpha
 
+	//TERO: added
+	float GetAlpha1() { return (m_flAlpha / 255.0f); }
+	
 	// panel visibility
 	// invisible panels and their children do not drawn, updated, or receive input messages
 	virtual void SetVisible(bool state);
